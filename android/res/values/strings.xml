@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">aguatv</string>
+    <string name="guard_label">aguatv home button</string>
+    <string name="guard_description">Sends the HOME button to the aguatv home screen instead of Amazon\'s. It reads no screen content and has no internet access.</string>
+</resources>

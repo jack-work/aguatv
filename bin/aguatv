@@ -1,0 +1,193 @@
+PKG=tv.aguatv
+GUARD=$PKG/$PKG.Guard
+GUARD_LABEL="aguatv home button"
+STATE=${XDG_DATA_HOME:-$HOME/.local/share}/aguatv
+KEYSTORE=${AGUATV_KEYSTORE:-$STATE/release.keystore}
+KEYPASS=${AGUATV_KEYPASS:-aguatv}
+
+usage() {
+  cat >&2 <<EOF
+usage: aguatv install     build, sign and install, then take over HOME
+       aguatv undo        give HOME back to Amazon's launcher
+       aguatv apk [path]  write a signed APK without installing
+       aguatv status      show what HOME resolves to and whether the guard is bound
+
+The TV is whatever adb is connected to; set ANDROID_SERIAL when there are several.
+EOF
+  exit 2
+}
+
+die() { echo "aguatv: $*" >&2; exit 1; }
+sh_() { adb shell "$@" </dev/null | tr -d '\r'; }
+
+need_device() {
+  [[ $(adb get-state 2>/dev/null || true) == device ]] ||
+    die "no TV connected: adb connect <tv-ip>:5555, and set ANDROID_SERIAL if several"
+  local sdk
+  sdk=$(sh_ getprop ro.build.version.sdk)
+  [[ $sdk =~ ^[0-9]+$ && $sdk -ge 28 ]] || die "needs Fire OS 7 or later (sdk 28+), this is sdk ${sdk:-unknown}"
+  DEV_SDK=$sdk
+}
+
+sign() {
+  local out=$1 work
+  mkdir -p "$STATE"
+  if [[ ! -f $KEYSTORE ]]; then
+    keytool -genkeypair -keystore "$KEYSTORE" -alias home -keyalg RSA -keysize 2048 \
+      -validity 10000 -storepass "$KEYPASS" -keypass "$KEYPASS" -dname "CN=aguatv" >/dev/null 2>&1
+    echo "created signing key $KEYSTORE; later installs must use the same key"
+  fi
+  work=$(mktemp -d)
+  cp "$AGUATV_APK" "$work/app.apk"
+  chmod u+w "$work/app.apk"
+  "$AGUATV_BUILD_TOOLS/apksigner" sign --ks "$KEYSTORE" --ks-pass "pass:$KEYPASS" \
+    --key-pass "pass:$KEYPASS" --out "$out" "$work/app.apk"
+  rm -rf "$work"
+}
+
+put_secure() {
+  local got
+  sh_ settings put secure "$1" "${2:-\"\"}" >/dev/null
+  got=$(sh_ settings get secure "$1")
+  [[ $got == "$2" || ( -z $2 && $got == null ) ]] && return 0
+  sh_ content insert --uri content://settings/secure --bind "name:s:$1" --bind "value:s:$2" >/dev/null
+}
+
+set_guard() {
+  local orig cur
+  orig=$(sh_ settings get secure enabled_accessibility_services)
+  [[ $orig == null ]] && orig=
+  cur=$(printf '%s' "$orig" | tr ':' '\n' | { grep -vxF -e "$GUARD" -e "$PKG/.Guard" -e '' || true; } | paste -sd: -)
+  if [[ -n ${1:-} ]]; then cur=${cur:+$cur:}$1; fi
+  put_secure enabled_accessibility_services ""
+  sleep 1
+  if [[ -n $cur ]]; then
+    put_secure enabled_accessibility_services "$cur"
+    put_secure accessibility_enabled 1
+  else
+    put_secure accessibility_enabled 0
+  fi
+}
+
+futurity_store() {
+  if [[ $DEV_SDK -ge 31 ]]; then echo config; else echo constants; fi
+}
+
+futurity_get() {
+  if [[ $(futurity_store) == config ]]; then
+    local v
+    v=$(sh_ device_config get alarm_manager min_futurity)
+    [[ $v == null ]] || printf '%s' "$v"
+    return
+  fi
+  local cur
+  cur=$(sh_ settings get global alarm_manager_constants)
+  tr ',' '\n' <<<"$cur" | sed -n 's/^min_futurity=//p' | sed -n 1p
+}
+
+futurity_put() {
+  if [[ $(futurity_store) == config ]]; then
+    if [[ -n $1 ]]; then sh_ device_config put alarm_manager min_futurity "$1" >/dev/null
+    else sh_ device_config delete alarm_manager min_futurity >/dev/null; fi
+    return
+  fi
+  local cur
+  cur=$(sh_ settings get global alarm_manager_constants)
+  [[ $cur == null ]] && cur=
+  cur=$(printf '%s' "$cur" | tr ',' '\n' | { grep -v '^min_futurity=' || true; } | paste -sd, -)
+  if [[ -n $1 ]]; then cur=${cur:+$cur,}min_futurity=$1; fi
+  if [[ -n $cur ]]; then sh_ settings put global alarm_manager_constants "$cur" >/dev/null
+  else sh_ settings delete global alarm_manager_constants >/dev/null; fi
+}
+
+futurity_on() {
+  local old saved
+  old=$(futurity_get)
+  saved=$(sh_ settings get global aguatv_min_futurity)
+  if [[ -n $old && $old != 0 && ( -z $saved || $saved == null ) ]]; then
+    sh_ settings put global aguatv_min_futurity "$old" >/dev/null
+  fi
+  futurity_put 0
+}
+
+futurity_off() {
+  local saved
+  saved=$(sh_ settings get global aguatv_min_futurity)
+  if [[ $saved =~ ^[0-9]+$ ]]; then futurity_put "$saved"; else futurity_put ""; fi
+  sh_ settings delete global aguatv_min_futurity >/dev/null 2>&1 || true
+}
+
+guard_bound() {
+  local dump
+  dump=$(sh_ dumpsys accessibility)
+  grep -q -e "Service\[label=$GUARD_LABEL," -e "Service\[label=$GUARD," <<<"$dump"
+}
+
+front() {
+  local dump
+  dump=$(sh_ dumpsys activity activities)
+  sed -n 's/.*mResumedActivity: ActivityRecord{[^ ]* [^ ]* \([^ ]*\).*/\1/p' <<<"$dump" | sed -n 1p
+}
+
+cmd_install() {
+  need_device
+  local apk out
+  apk=$(mktemp --suffix=.apk)
+  sign "$apk"
+  out=$(adb install -r "$apk" 2>&1 | grep -m1 -E 'Success|Failure|failed' || true)
+  rm -f "$apk"
+  case $out in
+    *Success*) echo "installed $PKG" ;;
+    *INSTALL_FAILED_UPDATE_INCOMPATIBLE*)
+      die "the installed aguatv was signed with another key; adb uninstall $PKG first" ;;
+    *) die "adb install failed: ${out:-no output}" ;;
+  esac
+  sh_ dumpsys deviceidle whitelist +$PKG >/dev/null
+  sh_ cmd package set-home-activity $PKG/.Home >/dev/null 2>&1 || true
+  futurity_on
+  set_guard "$GUARD"
+  for _ in $(seq 1 15); do
+    guard_bound && break
+    sleep 1
+  done
+  if ! guard_bound; then
+    futurity_off
+    set_guard ""
+    die "Fire OS did not bind the HOME guard ($GUARD); HOME stays with Amazon"
+  fi
+  sh_ input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+  sh_ am start -W -n $PKG/.Home >/dev/null 2>&1 || true
+  for _ in $(seq 1 10); do
+    [[ $(front) == "$PKG"/* ]] && break
+    sleep 1
+  done
+  echo "front: $(front)"
+}
+
+cmd_undo() {
+  need_device
+  sh_ am force-stop $PKG >/dev/null 2>&1 || true
+  futurity_off
+  set_guard ""
+  sh_ dumpsys deviceidle whitelist -$PKG >/dev/null 2>&1 || true
+  sh_ am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1 || true
+  echo "HOME is Amazon's again; aguatv stays installed (adb uninstall $PKG removes it)"
+}
+
+cmd_status() {
+  need_device
+  local path
+  path=$(sh_ pm path $PKG || true)
+  echo "installed: ${path#package:}"
+  if guard_bound; then echo "guard: bound"; else echo "guard: not bound"; fi
+  echo "min_futurity: $(futurity_get)"
+  echo "front: $(front)"
+}
+
+case ${1:-} in
+  install) cmd_install ;;
+  undo) cmd_undo ;;
+  status) cmd_status ;;
+  apk) sign "${2:-aguatv.apk}"; echo "wrote ${2:-aguatv.apk}" ;;
+  *) usage ;;
+esac
