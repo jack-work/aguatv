@@ -524,6 +524,10 @@ func (h *Hub) adbText(w http.ResponseWriter, r *http.Request, c Caster) {
 		}
 		return
 	}
+	if _, err := tv.InputTextArg(body.Text); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
 	if err := l.do(func(t tv.TV) error { return t.Text(body.Text) }); err != nil {
 		fail(w, http.StatusBadGateway, err)
 		return

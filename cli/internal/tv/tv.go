@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jack-work/aguatv/cli/internal/adb"
 )
@@ -197,10 +198,27 @@ func (s shellInput) Hold(code int, _ time.Duration) error {
 }
 
 func (s shellInput) Text(t string) error {
-	escaped := strings.NewReplacer(" ", "%s", "'", "\\'", "\"", "\\\"", "&", "\\&", "(", "\\(", ")", "\\)",
-		";", "\\;", "<", "\\<", ">", "\\>", "|", "\\|", "*", "\\*", "$", "\\$").Replace(t)
-	_, err := s.a.Run("shell", "input", "text", escaped)
+	arg, err := InputTextArg(t)
+	if err != nil {
+		return err
+	}
+	_, err = s.a.Run("shell", "input text "+arg)
 	return err
+}
+
+var ErrUnsafeText = errors.New("text may hold only printable characters")
+
+func InputTextArg(t string) (string, error) {
+	for _, r := range t {
+		if r < 0x20 || r == 0x7f || !unicode.IsPrint(r) {
+			return "", ErrUnsafeText
+		}
+	}
+	return ShellQuote(strings.ReplaceAll(t, " ", "%s")), nil
+}
+
+func ShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func (s shellInput) Shell(args ...string) error {

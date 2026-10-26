@@ -82,3 +82,15 @@ func TestADBBrokenConnectionIsRedialledOnce(t *testing.T) {
 		t.Fatalf("dials %d closed %d presses %v", *dials, dead.closed, alive.presses)
 	}
 }
+
+func TestADBTextRefusesControlCharacters(t *testing.T) {
+	f := &fake{}
+	l, _ := adbLink(f)
+	h := testHub(t, map[string]*link{"tv": l})
+	if w := h.do("alice", http.MethodPost, "/api/adb/tv/text", `{"text":"a\nreboot"}`); w.Code != 400 || len(f.texts) != 0 {
+		t.Fatalf("got %d, texts %v", w.Code, f.texts)
+	}
+	if w := h.do("alice", http.MethodPost, "/api/adb/tv/text", "{\"text\":\"`reboot` $(id); x\"}"); w.Code != 200 || len(f.texts) != 1 {
+		t.Fatalf("printable text with shell characters: %d %v", w.Code, f.texts)
+	}
+}
