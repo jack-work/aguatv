@@ -28,19 +28,20 @@ type PlayState struct {
 }
 
 type Hub struct {
-	store   *Store
-	linker  *Linker
-	queues  *Queues
-	casts   *Casts
-	source  Source
-	adb     map[string]*link
-	site    http.Handler
-	public  string
-	secure  bool
-	wait    time.Duration
-	stateMu sync.Mutex
-	state   map[string]PlayState
-	mux     *http.ServeMux
+	store    *Store
+	linker   *Linker
+	queues   *Queues
+	casts    *Casts
+	source   Source
+	adb      map[string]*link
+	adbGroup string
+	site     http.Handler
+	public   string
+	secure   bool
+	wait     time.Duration
+	stateMu  sync.Mutex
+	state    map[string]PlayState
+	mux      *http.ServeMux
 }
 
 func NewHub(store *Store, casts *Casts, source Source, adb map[string]*link, site http.Handler, public string, secure bool) *Hub {
@@ -341,6 +342,9 @@ func (h *Hub) devices(w http.ResponseWriter, r *http.Request, c Caster) {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	if !h.mayADB(c) {
+		names = nil
+	}
 	for _, n := range names {
 		st := h.adb[n].status()
 		st["name"] = n
@@ -469,7 +473,24 @@ func (h *Hub) control(w http.ResponseWriter, r *http.Request, c Caster) {
 	reply(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func inGroup(groups, want string) bool {
+	for _, g := range strings.Split(groups, ",") {
+		if strings.TrimSpace(g) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Hub) mayADB(c Caster) bool {
+	return h.adbGroup == "" || inGroup(c.Groups, h.adbGroup)
+}
+
 func (h *Hub) adbFor(w http.ResponseWriter, r *http.Request) (*link, bool) {
+	if !h.mayADB(Caster{Groups: r.Header.Get("Remote-Groups")}) {
+		fail(w, http.StatusForbidden, errors.New("adb remotes need the "+h.adbGroup+" group"))
+		return nil, false
+	}
 	l, ok := h.adb[r.PathValue("name")]
 	if !ok {
 		fail(w, http.StatusNotFound, errors.New("no such remote"))

@@ -49,6 +49,8 @@ func main() {
 	flag.StringVar(&s3Bucket, "s3-bucket", "", "S3 bucket for casts")
 	flag.StringVar(&s3Region, "s3-region", "garage", "S3 region")
 	flag.Var(targets, "adb", "an adb remote, name=host:port (repeatable)")
+	var adbGroup string
+	flag.StringVar(&adbGroup, "adb-group", "", "if set, only members of this Remote-Groups group may see or drive adb remotes")
 	flag.StringVar(&adbBin, "adb-bin", defaultAdb, "adb binary")
 	flag.StringVar(&jar, "jar", defaultJar, "scrcpy-server jar")
 	flag.StringVar(&version, "scrcpy-version", scrcpyVersion, "version of that jar")
@@ -114,6 +116,7 @@ func main() {
 	}
 
 	h := NewHub(store, NewCasts(a), src, remotes, http.FileServer(http.Dir(site)), public, !insecure)
+	h.adbGroup = adbGroup
 	ln, err := listener(listen)
 	if err != nil {
 		log.Fatal(err)

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,5 +93,28 @@ func TestADBTextRefusesControlCharacters(t *testing.T) {
 	}
 	if w := h.do("alice", http.MethodPost, "/api/adb/tv/text", "{\"text\":\"`reboot` $(id); x\"}"); w.Code != 200 || len(f.texts) != 1 {
 		t.Fatalf("printable text with shell characters: %d %v", w.Code, f.texts)
+	}
+}
+
+func TestADBGroupGatesRemotes(t *testing.T) {
+	f := &fake{}
+	l, _ := adbLink(f)
+	h := testHub(t, map[string]*link{"tv": l})
+	h.h.adbGroup = "tv-adb"
+	press := func(groups string) int {
+		return h.req(http.MethodPost, "/api/adb/tv/press", `{"action":"ok"}`, func(r *http.Request) {
+			r.Header.Set("Remote-User", "alice")
+			r.Header.Set("Remote-Groups", groups)
+		}).Code
+	}
+	if c := press("site-tv-access"); c != 403 {
+		t.Fatalf("without the group: %d", c)
+	}
+	if c := press("site-tv-access, tv-adb"); c != 200 {
+		t.Fatalf("with the group: %d", c)
+	}
+	list := h.req(http.MethodGet, "/api/devices", "", func(r *http.Request) { r.Header.Set("Remote-User", "alice") })
+	if strings.Contains(list.Body.String(), `"name":"tv"`) {
+		t.Fatalf("remote listed to a non-member: %s", list.Body)
 	}
 }
