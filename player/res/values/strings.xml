@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">aguatv player</string>
-    <string name="receiver_name">Cast receiver</string>
 </resources>
