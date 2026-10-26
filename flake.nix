@@ -93,6 +93,22 @@
           '';
         };
 
+        remote = pkgs.buildGoModule {
+          pname = "aguatv-remote";
+          inherit version;
+          src = ./remote;
+          vendorHash = "sha256-TUbaUoqDZoQTkcOMtoE/FlAiqkWN+x49JeGkDguh2UU=";
+          ldflags = [
+            "-s"
+            "-w"
+            "-X main.defaultJar=${pkgs.scrcpy}/share/scrcpy/scrcpy-server"
+            "-X main.scrcpyVersion=${pkgs.scrcpy.version}"
+            "-X main.defaultAdb=${pkgs.android-tools}/bin/adb"
+          ];
+          postInstall = "mv $out/bin/remote $out/bin/aguatv-remote";
+          meta.mainProgram = "aguatv-remote";
+        };
+
         aguatv = pkgs.writeShellApplication {
           name = "aguatv";
           runtimeInputs = [
@@ -106,13 +122,14 @@
           text = ''
             export AGUATV_APK=${apk}/aguatv-unsigned.apk
             export AGUATV_BUILD_TOOLS=${sdkRoot}/build-tools/${buildTools}
+            export AGUATV_REMOTE=${pkgs.lib.getExe remote}
             ${builtins.readFile ./bin/aguatv}
           '';
         };
       in
       {
         packages = {
-          inherit web apk aguatv;
+          inherit web apk remote aguatv;
           default = aguatv;
         };
         apps.default = flake-utils.lib.mkApp { drv = aguatv; };

@@ -34,6 +34,7 @@ takes over the HOME button. Later installs must use the same key, so keep that f
 | `aguatv undo` | give HOME back to Amazon's launcher; aguatv stays installed |
 | `aguatv status` | whether the HOME guard is bound and what is in front |
 | `aguatv apk [path]` | write a signed APK without installing |
+| `aguatv remote [-c host:port]` | a TV remote in the terminal, with vim keys |
 
 With several devices connected, set `ANDROID_SERIAL`.
 
@@ -50,11 +51,37 @@ With several devices connected, set `ANDROID_SERIAL`.
 The System row opens Settings, turns the boil animation on or off, shows hidden
 apps, and opens Amazon's home screen on purpose.
 
+## Remote
+
+`aguatv remote` is a remote control in the terminal. It works on any Android or
+Fire TV that adb can reach, aguatv installed or not, and over Tailscale or any
+other route to the TV's port 5555.
+
+| keys | does |
+|---|---|
+| `h` `j` `k` `l`, arrows | D-pad |
+| `Enter` `o` `Space` | OK |
+| `b` `Backspace` `Esc` | Back |
+| `gg` `H` | Home; `gh` holds Home for the quick menu |
+| `m` | Menu |
+| `p` `[` `]` | play/pause, rewind, fast forward |
+| `+` `=` `-` `M` | volume up, down, mute |
+| `5j`, `Ctrl-u` `Ctrl-d` | counts; five up or down |
+| `i` `a` | type into a text field; `Esc` leaves |
+| `gs` | settings |
+| `:power` `:wake` `:sleep` `:quick` `:type text` | the rest |
+| `?` | key list; `q` or `:q` quits |
+
+Keys go through a scrcpy server started on the TV for the session, so a press
+lands at once rather than starting a Java process per key as `adb shell input`
+does. `-slow` uses `adb shell input` instead.
+
 ## Develop
 
 ```sh
 nix build .#web      # the page alone; open result/index.html in a browser
 nix build .#apk      # unsigned APK
+nix build .#remote   # the terminal remote; go test ./... in remote/
 nix develop          # adb, a JDK and ANDROID_HOME
 ```
 

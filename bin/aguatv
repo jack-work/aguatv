@@ -11,6 +11,7 @@ usage: aguatv install     build, sign and install, then take over HOME
        aguatv undo        give HOME back to Amazon's launcher
        aguatv apk [path]  write a signed APK without installing
        aguatv status      show what HOME resolves to and whether the guard is bound
+       aguatv remote      a vim-keyed remote in the terminal (aguatv remote -h)
 
 The TV is whatever adb is connected to; set ANDROID_SERIAL when there are several.
 EOF
@@ -188,6 +189,7 @@ case ${1:-} in
   install) cmd_install ;;
   undo) cmd_undo ;;
   status) cmd_status ;;
+  remote) shift; exec "$AGUATV_REMOTE" "$@" ;;
   apk) sign "${2:-aguatv.apk}"; echo "wrote ${2:-aguatv.apk}" ;;
   *) usage ;;
 esac
