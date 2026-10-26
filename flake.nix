@@ -162,6 +162,8 @@
           ln -s ${cli}/bin/aguatv-remote $out/bin/aguatv-remote
         '';
 
+        player = import ./nix/player.nix { inherit pkgs sdkRoot buildTools minSdk jdk version; };
+
         aguatv = pkgs.writeShellApplication {
           name = "aguatv";
           runtimeInputs = [
@@ -187,6 +189,7 @@
             apk
             cli
             remote
+            player
             aguatv
             ;
           default = pkgs.symlinkJoin {
