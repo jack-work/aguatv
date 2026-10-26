@@ -92,7 +92,7 @@
         sdkRoot = "${sdk}/libexec/android-sdk";
         jdk = pkgs.jdk17_headless;
 
-        hubWeb = zanni.lib.mkBoiledSite {
+        hubWebPages = zanni.lib.mkBoiledSite {
           inherit pkgs version;
           pname = "aguatv-hub-web";
           src = ./hub-web;
@@ -107,6 +107,12 @@
             "receiver.html"
           ];
         };
+
+        hubWeb = pkgs.runCommand "aguatv-hub-web-${version}" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          cp -r ${hubWebPages} $out
+          chmod -R u+w $out
+          python3 ${./nix/csp-hashes.py} $out
+        '';
 
         web = zanni.lib.mkBoiledSite {
           inherit pkgs version;

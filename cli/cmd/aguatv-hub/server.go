@@ -8,6 +8,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -37,6 +39,8 @@ type Hub struct {
 	adbGroup string
 	site     http.Handler
 	public   string
+	files    string
+	cspDir   string
 	secure   bool
 	wait     time.Duration
 	stateMu  sync.Mutex
@@ -72,7 +76,13 @@ func NewHub(store *Store, casts *Casts, source Source, adb map[string]*link, sit
 	m.HandleFunc("POST /api/adb/{name}/press", h.asPerson(h.adbPress))
 	m.HandleFunc("POST /api/adb/{name}/text", h.asPerson(h.adbText))
 	m.HandleFunc("GET /{$}", h.asPerson(h.pageFor("/index.html")))
-	m.HandleFunc("GET /", h.asPerson(func(w http.ResponseWriter, r *http.Request, _ Caster) { h.site.ServeHTTP(w, r) }))
+	m.HandleFunc("GET /", h.asPerson(func(w http.ResponseWriter, r *http.Request, _ Caster) {
+		if strings.HasSuffix(r.URL.Path, ".html") || strings.HasSuffix(r.URL.Path, ".csp") {
+			http.NotFound(w, r)
+			return
+		}
+		h.site.ServeHTTP(w, r)
+	}))
 	return h
 }
 
@@ -113,8 +123,36 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+func (h *Hub) csp(name string) string {
+	var hashes string
+	if h.cspDir != "" {
+		if b, err := os.ReadFile(filepath.Join(h.cspDir, filepath.Base(name)+".csp")); err == nil {
+			hashes = strings.TrimSpace(string(b))
+		}
+	}
+	connect := "'self'"
+	if h.files != "" && name != "/receiver.html" {
+		connect += " " + h.files
+	}
+	return strings.Join([]string{
+		"default-src 'none'",
+		strings.TrimSpace("script-src 'self' " + hashes),
+		"style-src 'self' 'unsafe-inline'",
+		"img-src 'self' data:",
+		"font-src 'self' data:",
+		"media-src 'self'",
+		"connect-src " + connect,
+		"base-uri 'none'",
+		"form-action 'self'",
+		"frame-ancestors 'none'",
+		"object-src 'none'",
+	}, "; ")
+}
+
 func (h *Hub) page(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", h.csp(name))
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = name
 		h.site.ServeHTTP(w, r2)
@@ -276,28 +314,26 @@ func (h *Hub) deviceState(w http.ResponseWriter, r *http.Request, d Device) {
 }
 
 func (h *Hub) stream(w http.ResponseWriter, r *http.Request, d Device) {
-	cast, err := h.casts.For(r.Context(), d.ID, r.URL.Query().Get("cast"))
+	cast, err := h.casts.For(d.ID, r.URL.Query().Get("cast"))
 	if err != nil {
-		code := http.StatusNotFound
-		if errors.Is(err, errNotAllowed) {
-			code = http.StatusForbidden
-		} else if !errors.Is(err, errNoCast) {
-			code = http.StatusBadGateway
-		}
-		fail(w, code, err)
+		fail(w, http.StatusNotFound, err)
 		return
 	}
 	if ks, ok := h.source.(keyServer); ok {
 		ks.ServeKey(w, r, cast.Key)
 		return
 	}
-	resp, err := h.source.Open(r.Context(), cast.Key, r.Header)
+	resp, err := h.source.Open(r.Context(), cast, r.Header)
 	if err != nil {
 		fail(w, http.StatusBadGateway, err)
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+	switch {
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized:
+		fail(w, http.StatusForbidden, errors.New("the file is no longer yours to show"))
+		return
+	case resp.StatusCode >= 400 && resp.StatusCode != http.StatusRequestedRangeNotSatisfiable:
 		fail(w, http.StatusBadGateway, fmt.Errorf("storage answered %d", resp.StatusCode))
 		return
 	}
@@ -313,7 +349,7 @@ func (h *Hub) stream(w http.ResponseWriter, r *http.Request, d Device) {
 }
 
 func (h *Hub) me(w http.ResponseWriter, r *http.Request, c Caster) {
-	reply(w, http.StatusOK, map[string]string{"user": c.User})
+	reply(w, http.StatusOK, map[string]string{"user": c.User, "files": h.files})
 }
 
 type deviceView struct {
@@ -424,7 +460,7 @@ func (h *Hub) unlink(w http.ResponseWriter, r *http.Request, c Caster) {
 
 func (h *Hub) cast(w http.ResponseWriter, r *http.Request, c Caster) {
 	var body struct {
-		Ref string `json:"ref"`
+		Ticket string `json:"ticket"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -434,16 +470,9 @@ func (h *Hub) cast(w http.ResponseWriter, r *http.Request, c Caster) {
 		fail(w, http.StatusNotFound, errNoDevice)
 		return
 	}
-	cast, err := h.casts.New(r.Context(), d.ID, c, body.Ref)
+	cast, err := h.casts.New(d.ID, c, body.Ticket)
 	if err != nil {
-		code := http.StatusBadGateway
-		switch {
-		case errors.Is(err, errNotAllowed):
-			code = http.StatusForbidden
-		case strings.Contains(err.Error(), "not an object key"):
-			code = http.StatusBadRequest
-		}
-		fail(w, code, err)
+		fail(w, http.StatusBadRequest, err)
 		return
 	}
 	h.queues.Push(d.ID, Event{Kind: "cast", Cast: cast.ID, Title: cast.Title, Type: cast.Type})

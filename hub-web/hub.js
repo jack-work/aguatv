@@ -8,6 +8,7 @@
   var adbPanel = document.getElementById('adb');
   var keysEl = document.getElementById('keys');
   var selected = null;
+  var filesOrigin = '';
   var count = '';
   var pendingG = false;
 
@@ -125,12 +126,36 @@
     b.addEventListener('click', function () { control(b.dataset.c, parseFloat(b.dataset.v || '0')); });
   });
 
+  function objectURI(ref) {
+    var path = ref;
+    try { path = new URL(ref).pathname; } catch (e) {
+      path = '/' + ref.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+    }
+    return path;
+  }
+
+  function ticket(ref, device) {
+    if (!filesOrigin) return Promise.reject(new Error('this hub has no files origin to ask for tickets'));
+    return fetch(filesOrigin + '/_files/cast-ticket', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: JSON.stringify({ uri: objectURI(ref), device: device })
+    }).then(function (r) {
+      if (r.status === 403) throw new Error('you may not show that file');
+      if (!r.ok) throw new Error('files answered ' + r.status);
+      return r.json();
+    });
+  }
+
   document.getElementById('castForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var ref = document.getElementById('ref').value.trim();
     if (!ref || !selected || !selected.id) return;
-    say('casting');
-    api('POST', '/api/devices/' + selected.id + '/cast', { ref: ref })
+    var device = selected.id;
+    say('asking files for a ticket');
+    ticket(ref, device)
+      .then(function (t) { say('casting'); return api('POST', '/api/devices/' + device + '/cast', { ticket: t.ticket }); })
       .then(function (r) { say('cast ' + r.title); })
       .catch(function (err) { say(err.message, true); });
   });
@@ -214,7 +239,15 @@
     count = '';
   });
 
-  api('GET', '/api/me').then(function (m) { document.getElementById('who').textContent = m.user; }).catch(function () {});
+  api('GET', '/api/me').then(function (m) {
+    document.getElementById('who').textContent = m.user;
+    filesOrigin = m.files || '';
+  }).catch(function () {});
+  var preset = new URLSearchParams(location.search).get('cast');
+  if (preset) {
+    document.getElementById('ref').value = preset;
+    say('pick a screen, then press cast');
+  }
   refresh();
   setInterval(refresh, 5000);
 })();

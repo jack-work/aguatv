@@ -11,7 +11,7 @@ import (
 
 type noSource struct{}
 
-func (noSource) Open(context.Context, string, http.Header) (*http.Response, error) {
+func (noSource) Open(context.Context, *Cast, http.Header) (*http.Response, error) {
 	return nil, errors.New("casting has no storage configured")
 }
 
@@ -21,7 +21,7 @@ type keyServer interface {
 
 type dirSource string
 
-func (d dirSource) Open(context.Context, string, http.Header) (*http.Response, error) {
+func (d dirSource) Open(context.Context, *Cast, http.Header) (*http.Response, error) {
 	return nil, errors.New("dirSource serves directly")
 }
 

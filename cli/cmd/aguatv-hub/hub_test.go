@@ -1,7 +1,7 @@
 package main
 
 import (
-	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,18 +12,14 @@ import (
 	"time"
 )
 
-type grants map[string]bool
-
-func (g grants) CanRead(_ context.Context, by Caster, key string) (bool, error) {
-	return g[by.User+":"+key], nil
-}
-
 type th struct {
-	t     *testing.T
-	h     *Hub
-	store *Store
-	g     grants
-	dir   string
+	t       *testing.T
+	h       *Hub
+	store   *Store
+	dir     string
+	seen    []http.Header
+	deny    bool
+	storage *httptest.Server
 }
 
 func testHub(t *testing.T, adb map[string]*link) *th {
@@ -32,10 +28,28 @@ func testHub(t *testing.T, adb map[string]*link) *th {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := grants{}
-	h := NewHub(store, NewCasts(g), dirSource("testdata/files"), adb, http.NotFoundHandler(), "https://tv.example.com", true)
-	h.wait = 50 * time.Millisecond
-	return &th{t: t, h: h, store: store, g: g, dir: dir}
+	x := &th{t: t, store: store, dir: dir}
+	x.storage = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		x.seen = append(x.seen, r.Header.Clone())
+		if x.deny {
+			http.Error(w, "denied", http.StatusForbidden)
+			return
+		}
+		t, err := readTicket(r.Header.Get("X-Cast-Ticket"))
+		if err != nil || t.Device != r.Header.Get("X-Cast-Device") {
+			http.Error(w, "denied", http.StatusForbidden)
+			return
+		}
+		dirSource("testdata/files").ServeKey(w, r, t.Key)
+	}))
+	t.Cleanup(x.storage.Close)
+	src, err := NewTicketStream(x.storage.URL + "/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.h = NewHub(store, NewCasts(), src, adb, http.NotFoundHandler(), "https://tv.example.com", true)
+	x.h.wait = 50 * time.Millisecond
+	return x
 }
 
 func (x *th) req(method, path, body string, set func(*http.Request)) *httptest.ResponseRecorder {
@@ -171,14 +185,29 @@ func TestDevicesAndPeopleCannotUseEachOthersDoors(t *testing.T) {
 	}
 }
 
+func ticketFor(caster, key, device string, exp time.Time) string {
+	b, _ := json.Marshal(map[string]any{"v": 1, "c": caster, "g": []string{}, "k": key, "d": device, "e": exp.Unix()})
+	return base64.RawURLEncoding.EncodeToString(b) + ".signature-checked-by-files"
+}
+
+func (x *th) deviceID(user, kind string) string {
+	for _, d := range x.store.Owned(user) {
+		if d.Kind == kind {
+			return d.ID
+		}
+	}
+	x.t.Fatalf("no %s for %s", kind, user)
+	return ""
+}
+
 func TestOnlyTheOwnerCanRenameCastOrUnlink(t *testing.T) {
 	x := testHub(t, nil)
 	x.link("alice", "tv", "TV")
 	id := x.store.Owned("alice")[0].ID
-	x.g["bob:films/clip.mp4"] = true
+	ticket := ticketFor("bob", "films/clip.mp4", id, time.Now().Add(time.Hour))
 	for _, tc := range []struct{ method, path, body string }{
 		{http.MethodPost, "/api/devices/" + id + "/rename", `{"name":"mine"}`},
-		{http.MethodPost, "/api/devices/" + id + "/cast", `{"ref":"films/clip.mp4"}`},
+		{http.MethodPost, "/api/devices/" + id + "/cast", `{"ticket":"` + ticket + `"}`},
 		{http.MethodPost, "/api/devices/" + id + "/control", `{"action":"toggle"}`},
 		{http.MethodDelete, "/api/devices/" + id, ""},
 	} {
@@ -203,55 +232,68 @@ func TestCrossSitePostsAreRefused(t *testing.T) {
 	}
 }
 
-func TestCastIsCheckedAgainstTheCallersRightsAndStreamsWithRanges(t *testing.T) {
+func TestACastNeedsATicketForThisPersonScreenAndTime(t *testing.T) {
+	x := testHub(t, nil)
+	x.link("alice", "tv", "TV")
+	x.link("alice", "browser", "Laptop")
+	tv, laptop := x.deviceID("alice", "tv"), x.deviceID("alice", "browser")
+	soon := time.Now().Add(time.Hour)
+	for name, ticket := range map[string]string{
+		"another screen": ticketFor("alice", "films/clip.mp4", laptop, soon),
+		"another person": ticketFor("bob", "films/clip.mp4", tv, soon),
+		"expired":        ticketFor("alice", "films/clip.mp4", tv, time.Now().Add(-time.Minute)),
+		"garbage":        "not-a-ticket",
+		"empty":          "",
+	} {
+		if w := x.do("alice", http.MethodPost, "/api/devices/"+tv+"/cast", `{"ticket":"`+ticket+`"}`); w.Code != 400 {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+}
+
+func TestCastStreamsWithTheHubsTicketNotTheClients(t *testing.T) {
 	x := testHub(t, nil)
 	c := x.link("alice", "tv", "TV")
 	other := x.link("alice", "browser", "Laptop")
-	id := ""
-	for _, d := range x.store.Owned("alice") {
-		if d.Kind == "tv" {
-			id = d.ID
-		}
-	}
-	if w := x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ref":"films/clip.mp4"}`); w.Code != 403 {
-		t.Fatalf("cast without a grant: %d %s", w.Code, w.Body)
-	}
-	if w := x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ref":"../etc/passwd"}`); w.Code != 400 {
-		t.Fatalf("a path that leaves the bucket: %d", w.Code)
-	}
-	x.g["alice:films/clip.mp4"] = true
-	w := x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ref":"https://files.example.com/films/clip.mp4"}`)
+	id := x.deviceID("alice", "tv")
+	ticket := ticketFor("alice", "films/clip.mp4", id, time.Now().Add(time.Hour))
+	w := x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ticket":"`+ticket+`"}`)
 	if w.Code != 200 {
 		t.Fatalf("cast: %d %s", w.Code, w.Body)
 	}
 	cast := jsonOf(t, w)["cast"].(string)
 	ev := jsonOf(t, x.dev(c, http.MethodGet, "/device/next", ""))
-	if ev["kind"] != "cast" || ev["cast"] != cast || ev["type"] != "video/mp4" {
+	if ev["kind"] != "cast" || ev["cast"] != cast || ev["type"] != "video/mp4" || ev["title"] != "clip.mp4" {
 		t.Fatalf("event %v", ev)
 	}
+	forged := ticketFor("alice", "secret/other.mp4", id, time.Now().Add(time.Hour))
 	w = x.req(http.MethodGet, "/stream?cast="+cast, "", func(r *http.Request) {
 		r.AddCookie(c)
 		r.Header.Set("Range", "bytes=10-13")
+		r.Header.Set("X-Cast-Ticket", forged)
+		r.Header.Set("X-Cast-Device", "someone-else")
 	})
 	if w.Code != 206 || w.Body.String() != "abcd" || w.Header().Get("Content-Range") != "bytes 10-13/20" {
 		t.Fatalf("range: %d %q %v", w.Code, w.Body, w.Header())
+	}
+	got := x.seen[len(x.seen)-1]
+	if got.Get("X-Cast-Ticket") != ticket || got.Get("X-Cast-Device") != id || got.Get("Range") != "bytes=10-13" {
+		t.Fatalf("storage saw %v", got)
 	}
 	if w := x.dev(other, http.MethodGet, "/stream?cast="+cast, ""); w.Code != 404 {
 		t.Fatalf("another device streamed it: %d", w.Code)
 	}
 }
 
-func TestARevokedGrantStopsTheStream(t *testing.T) {
+func TestARefusalFromFilesReachesTheScreen(t *testing.T) {
 	x := testHub(t, nil)
 	c := x.link("alice", "tv", "TV")
-	id := x.store.Owned("alice")[0].ID
-	x.g["alice:films/clip.mp4"] = true
-	cast := jsonOf(t, x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ref":"films/clip.mp4"}`))["cast"].(string)
-	delete(x.g, "alice:films/clip.mp4")
-	later := time.Now().Add(2 * time.Minute)
-	x.h.casts.now = func() time.Time { return later }
+	id := x.deviceID("alice", "tv")
+	cast := jsonOf(t, x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast",
+		`{"ticket":"`+ticketFor("alice", "films/clip.mp4", id, time.Now().Add(time.Hour))+`"}`))["cast"].(string)
+	x.deny = true
 	if w := x.dev(c, http.MethodGet, "/stream?cast="+cast, ""); w.Code != 403 {
-		t.Fatalf("after the grant went: %d", w.Code)
+		t.Fatalf("after files refused: %d", w.Code)
 	}
 }
 
@@ -307,5 +349,32 @@ func TestQROnlyForAPendingCode(t *testing.T) {
 	w := x.dev(nil, http.MethodGet, "/device/qr?code="+code, "")
 	if w.Code != 200 || w.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("qr: %d %v", w.Code, w.Header())
+	}
+}
+
+func TestPagesCarryAStrictPolicy(t *testing.T) {
+	x := testHub(t, nil)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<p>hi</p>"), 0o644)
+	os.WriteFile(filepath.Join(dir, "index.html.csp"), []byte("'sha256-abc='\n"), 0o644)
+	x.h.site = http.FileServer(http.Dir(dir))
+	x.h.cspDir = dir
+	x.h.files = "https://files.example.com"
+	w := x.do("alice", http.MethodGet, "/", "")
+	csp := w.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'none'", "script-src 'self' 'sha256-abc='", "connect-src 'self' https://files.example.com", "frame-ancestors 'none'", "base-uri 'none'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("policy %q lacks %q", csp, want)
+		}
+	}
+	if strings.Contains(csp, "unsafe-inline'; script") || strings.Contains(strings.Split(csp, ";")[1], "unsafe") {
+		t.Errorf("scripts may not be unsafe: %q", csp)
+	}
+	if w := x.do("alice", http.MethodGet, "/index.html.csp", ""); w.Code != 404 {
+		t.Errorf("policy file served: %d", w.Code)
+	}
+	r := x.dev(nil, http.MethodGet, "/receiver", "")
+	if c := r.Header().Get("Content-Security-Policy"); !strings.Contains(c, "connect-src 'self';") {
+		t.Errorf("the receiver may only talk to the hub: %q", c)
 	}
 }
