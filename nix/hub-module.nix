@@ -33,6 +33,20 @@ in
       description = "The only origin a cast may name. Screens fetch it with their own login.";
     };
 
+    user = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        A static user to run as, which the host declares. Null runs the hub
+        as a dynamic user. Set together with `group`.
+      '';
+    };
+
+    group = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+    };
+
     listen = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
@@ -46,6 +60,33 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = (cfg.user == null) == (cfg.group == null);
+        message = "services.aguatv-hub: set user and group together, or neither";
+      }
+    ];
+
+    systemd.tmpfiles.rules = lib.optional (cfg.user != null) "Z /var/lib/aguatv-hub - ${cfg.user} ${cfg.group} -";
+
+    systemd.services.aguatv-hub-owner = lib.mkIf (cfg.user != null) {
+      description = "aguatv hub: state owned by its static user";
+      before = [ "aguatv-hub.service" ];
+      requiredBy = [ "aguatv-hub.service" ];
+      path = [ pkgs.coreutils pkgs.systemd ];
+      script = ''
+        if [ -d /var/lib/private/aguatv-hub ] && { [ -L /var/lib/aguatv-hub ] || [ ! -e /var/lib/aguatv-hub ]; }; then
+          rm -f /var/lib/aguatv-hub
+          mv /var/lib/private/aguatv-hub /var/lib/aguatv-hub
+        fi
+        systemd-tmpfiles --create --prefix=/var/lib/aguatv-hub
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+    };
+
     systemd.services.aguatv-hub = {
       description = "aguatv hub";
       wantedBy = lib.mkIf (cfg.listen != null) [ "multi-user.target" ];
@@ -67,10 +108,14 @@ in
             cfg.listen
           ]
         );
-        DynamicUser = true;
+        DynamicUser = cfg.user == null;
         StateDirectory = "aguatv-hub";
         StateDirectoryMode = "0700";
         UMask = "0077";
+      } // lib.optionalAttrs (cfg.user != null) {
+        User = cfg.user;
+        Group = cfg.group;
+      } // {
         Restart = "on-failure";
         RestartSec = 5;
         PrivateNetwork = cfg.listen == null;
