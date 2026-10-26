@@ -1,124 +1,107 @@
 # The hub
 
-`aguatv-hub` is one service that links screens to a person, sends them casts and
-playback commands, streams what was cast, and drives a TV over adb when it can
-reach one. It has no login of its own: put it behind one that stamps `Remote-User`.
+`aguatv-hub` keeps a person's screens, sends them casts and playback commands,
+drives a TV over adb when it can reach one, and serves the web app (`web/`, the
+same bundle the Fire TV home screen ships). It has no login of its own: it trusts
+`Remote-User` and `Remote-Groups`, so run it only behind a proxy that overwrites
+both, on a socket nothing else can reach (`nix/hub-module.nix`).
 
-## Two kinds of caller
+## Screens
 
-| caller | proves itself by | may |
-|---|---|---|
-| a person | `Remote-User`, stamped by the login proxy | list, link, rename and unlink their devices; cast; send playback commands; drive an adb TV |
-| a device | the `aguatv_device` cookie: an HttpOnly, Secure, SameSite=Strict, host-only cookie holding its token | wait for its next event, report playback, stream what was cast to it |
+Every screen signs in as its person. A browser that opens the hub is logged in
+already; registering it (`POST /api/me {name, remote}`) makes it one of that
+person's screens and sets `aguatv_screen`: HttpOnly, Secure, SameSite=Strict,
+host-only, 400 days. The cookie only says which of the person's screens this
+browser is. Under any other login it is ignored.
 
-A device never holds anything that works anywhere but the hub, and only for its
-own device id. Device paths are exact paths, so a login proxy can exempt exactly
-them: `/receiver`, `/device/start`, `/device/claim`, `/device/qr`, `/device/next`,
-`/device/state`, `/stream`. Everything else needs `Remote-User`.
+The store keeps the SHA-256 of the cookie's 32 random bytes, the owner, the name
+and the remote grant, in `screens.json` (0600, rewritten atomically). A screen
+unused for 90 days is dropped. Registering again from the same browser updates it.
+`DELETE /api/me` forgets this browser and clears the cookie.
 
-## Linking
+## The remote grant
 
-1. A screen opens `/receiver`. With no valid cookie it calls `POST /device/start`
-   and gets a link code (`K7M-QX4`: 7 characters from an alphabet without 0, O, 1, I)
-   and a claim secret. The page shows the code, the link URL and a QR of
-   `/tvlogin?code=K7M-QX4`.
-2. A person opens `/tvlogin`, sees what is asking to be linked (kind, the name it
-   proposed, when it asked, the address it asked from) and approves it, naming it.
-3. The screen polls `POST /device/claim` with its claim secret. Once approved, the
-   hub sets the device cookie on that response and the code is spent.
+A screen registered as a remote may cast to, control, rename and remove its
+owner's screens and drive the adb remotes. Anything else may only receive.
 
-Codes live 10 minutes, are single use, and are compared in constant time.
-`/device/start` is limited per address and globally. Approval is limited per
-person. A wrong code costs a person one attempt from a small bucket.
+| route | needs |
+|---|---|
+| `GET /`, assets, `GET /api/me`, `GET /api/screens` | a login |
+| `POST /api/me`, `DELETE /api/me` | a login |
+| `GET /api/me/next`, `POST /api/me/state` | a login and this browser registered |
+| `POST /api/screens/{id}/cast`, `/control`, `/name`, `DELETE /api/screens/{id}` | a remote screen; `{id}` must be the same owner's |
+| `POST /api/adb/{name}/press`, `/text` | a remote screen and, if `-adb-group` is set, that group |
 
-## Tokens
-
-32 random bytes, base64url. The store keeps only their SHA-256, bound to a device
-id and an owner. A token expires `deviceTTL` after its last use (90 days for a TV;
-a browser can ask for a session link, a cookie with no Max-Age and a 24 h TTL).
-Unlinking deletes the row, so the next request with that token is refused. Tokens
-and codes never appear in logs, argv or URLs.
-
-## Events
-
-Each device has a queue. `GET /device/next` waits up to 25 s and returns the next
-event or 204. Kinds: `cast` (a cast id, a title, a type), `control` (an action
-from zanni's filo: toggle, skip, seekTo, seekFraction, chapter, stop) and
-`unlinked`. A queue keeps the last 16 events; a stale `control` is dropped when a
-`cast` replaces what it would act on.
+`GET /api/screens` lists adb remotes only to a remote screen allowed to drive them.
 
 ## Casting
 
-`POST /api/devices/{id}/cast {ref}` from a person:
+`POST /api/screens/{id}/cast {url}` takes a path (`films/a.mkv`) or a URL on the
+`-files` origin and queues `{kind: "cast", url, title, type}` for that screen. The
+URL is rebuilt from the path alone: another scheme or host, user info, a query, a
+directory, `..` or a control character is refused. The screen fetches the file
+itself, with its own login, so the hub never touches storage and casting grants
+nothing the screen could not read already.
 
-1. the device must belong to the caller;
-2. the hub asks the files authorizer whether the caller may `read` that key, every
-   cast, not once at linking;
-3. it records a cast (random id, device id, key, caster, expiry 12 h) and queues it.
+## Events
 
-`GET /stream?cast=<id>` from that device streams the object by proxying a ranged
-GET to S3 with a read-only key, passing `Range`, `If-Range`, `Content-Range`,
-`Content-Length`, `Content-Type`, `ETag`, `Last-Modified` and `Accept-Ranges`.
-A cast that belongs to another device, has expired, or whose caster has since lost
-`read` (rechecked at most once a minute while streaming) is refused.
+Each screen has a queue. `GET /api/me/next` waits up to 25 s and returns the next
+event or 204. Kinds: `cast`, `control` (an action from zanni's filo: toggle, skip,
+seekTo, seekFraction, chapter, stop) and `forgotten` (the screen was removed). A
+queue keeps the last 16 events; a new cast drops controls still waiting. Screens
+report playback with `POST /api/me/state`; the list shows reports younger than
+two minutes.
+
+## The page
+
+`GET /` serves `index.html` with a CSP: scripts from `'self'` plus the hashes the
+site build wrote to `index.html.csp`, media from `'self'` and the files origin,
+connections to `'self'` only, no framing. `.html` and `.csp` files are not served
+directly, so the page cannot be loaded without its policy. Every non-GET request
+must be same-origin JSON (`Sec-Fetch-Site` same-origin or absent), DELETE
+excepted from the content type. Every response is `private, no-store`.
+
+## The web app
+
+`web/home.js` runs on two hosts. With the Android bridge (`window.host`) it is
+the TV home screen: inputs, apps, settings. In a browser behind the hub it shows
+the person's screens instead, a drawer to register this browser and to cast or
+control from it, and the adb pad (`h j k l`, `gg`, counts, `i` to type). `?preview`
+fakes the Android host for design work. `web/cast.js` plays a cast full screen
+under filo (zanni 0.11.0) with `globalKeys`, and maps the hub's controls onto
+filo's handle. Escape or back stops it.
 
 ## adb
 
-A device may also name an adb target. Then `POST /api/devices/{id}/press` drives it
-like the terminal remote. The adb server and its forwards listen on unix sockets in
-the hub's own 0700 runtime directory, so nothing listens on loopback TCP.
-
-## State
-
-One JSON file, `devices.json`, mode 0600, rewritten atomically. Casts, codes and
-queues are in memory: a restart unlinks nothing but drops casts in flight.
+`-adb name=host:port` adds a remote. The adb server should listen on a unix
+socket in a 0700 directory, never on loopback TCP. The NixOS module does not wire
+adb yet.
 
 ## Code
 
 ```
 cli/cmd/aguatv-hub/
-  server.go  routes, the two doors (asPerson, asDevice), the same-origin rule
-  link.go    codes, claim secrets, rate limits
-  store.go   devices.json: hashed tokens, owners, expiry
-  queue.go   per-device event queues and the long poll
-  cast.go    casts, the files authorizer client, S3 SigV4 ranged GET
+  server.go  routes, the caller (login, screen, remote), the page and its CSP
+  store.go   screens.json: hashed tokens, owners, idle expiry
+  queue.go   per-screen event queues and the long poll
+  cast.go    a files path or URL, rebuilt on the files origin
   adb.go     adb remotes, shared with the terminal remote through internal/tv
-  sources.go no storage, and a local directory for tests
-hub-web/     index (screens and remotes), tvlogin, receiver (self-contained)
-player/src/tv/aguatv/player/Receiver.java   the TV side: a WebView on <hub>/receiver
+web/         the app: index.html, home.js, cast.js, home.css
+nix/hub-module.nix, nix/hub-test.nix   services.aguatv-hub and its VM test
 ```
-
-Every non-GET request must be same-origin JSON (`Content-Type: application/json`,
-`Sec-Fetch-Site` same-origin or absent), DELETE excepted from the content type.
-`/receiver` inlines its CSS and JS because everything else under `/` needs a login.
-
-## The TV side
-
-`aguatv receiver <hub URL>` installs the player APK if needed and opens its
-`Receiver` activity on `<hub>/receiver?kind=tv&name=<device_name>`; the URL is
-kept in the app's preferences. The WebView keeps the device cookie, plays without
-a user gesture, keeps the screen on while video plays (`receiverHost.keepAwake`),
-and turns BACK into `aguatvReceiver.back()`, which stops a video or leaves. The app
-allows cleartext only to `localhost`, for testing through `adb reverse`.
-
-Measured on a Fire OS 7 TV: the D-pad arrives as `Arrow*`, OK as `Enter`, rewind and
-fast-forward as `MediaRewind` and `MediaFastForward` keydown events; play/pause
-works as `MediaPlayPause` or keyCode 179.
 
 ## Testing on a workstation
 
+Run the hub on loopback behind anything that sets `Remote-User`, and a file
+server standing in for the files site:
+
 ```sh
-nix build .#cli .#hubWeb .#aguatv
-AGUATV_HUB_STUB_GRANTS="me:films/test.mp4" AGUATV_HUB_STUB_DIR=/path/to/files \
-  result/bin/aguatv-hub -site <hubWeb> -public http://localhost:8099 -state /tmp/hub \
-  -listen 127.0.0.1:8099 -insecure-cookies
-adb reverse tcp:8099 tcp:8099
-aguatv receiver http://localhost:8099
-curl -H 'Remote-User: me' 'http://127.0.0.1:8099/api/link?code=<code on the TV>'
-curl -H 'Remote-User: me' -H 'Content-Type: application/json' -d '{"code":"<code>"}' http://127.0.0.1:8099/api/link
-curl -H 'Remote-User: me' -H 'Content-Type: application/json' -d '{"ref":"films/test.mp4"}' http://127.0.0.1:8099/api/devices/<id>/cast
+nix build .#cli .#web
+result/bin/aguatv-hub -site <web> -state /tmp/hub -files http://127.0.0.1:8732 \
+  -listen 127.0.0.1:8731 -insecure-cookies
 ```
 
-`Remote-User` stands in for the login proxy, so bind the test hub to loopback only.
-`AGUATV_HUB_STUB_GRANTS` holds `user:key` pairs; `AGUATV_HUB_STUB_DIR` stands in for
-the bucket. Neither is used once `-files-authz` or `-s3-endpoint` is set.
+A few lines of Go with `httputil.ReverseProxy` that set `Remote-User` on
+127.0.0.1:8730 and serve a directory on 8732 are enough; drive two browser
+contexts (one screen, one remote) with Playwright. `Remote-User` stands in for
+the login, so never bind a test hub anywhere but loopback.

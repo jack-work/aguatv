@@ -15,9 +15,9 @@ nix profile install github:jack-work/aguatv      # both: aguatv and aguatv-remot
 nix run github:jack-work/aguatv#remote            # just the remote
 ```
 
-- **aguatv-hub**, a small server that links TVs and browsers to a person with a
-  code or QR, casts files to them, and drives an adb TV from a phone. It trusts a
-  login proxy in front of it. See [`hub.md`](.agents/skills/aguatv/hub.md).
+- **aguatv-hub**, a small server that serves the same page to browsers, keeps a
+  person's screens, casts files to them, and drives an adb TV from a phone. It
+  trusts a login proxy in front of it. See [`hub.md`](.agents/skills/aguatv/hub.md).
 
 ## The home screen
 
