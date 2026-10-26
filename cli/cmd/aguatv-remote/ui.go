@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/jack-work/aguatv/cli/internal/tv"
 	"strconv"
 	"strings"
 	"time"
@@ -136,30 +137,30 @@ var (
 )
 
 var keyActs = map[string]act{
-	"K":         {code: keyMenu, label: "details", lit: "info"},
-	"k":         {code: keyUp, label: "up", lit: "up"},
-	"up":        {code: keyUp, label: "up", lit: "up"},
-	"j":         {code: keyDown, label: "down", lit: "down"},
-	"down":      {code: keyDown, label: "down", lit: "down"},
-	"h":         {code: keyLeft, label: "left", lit: "left"},
-	"left":      {code: keyLeft, label: "left", lit: "left"},
-	"l":         {code: keyRight, label: "right", lit: "right"},
-	"right":     {code: keyRight, label: "right", lit: "right"},
-	"enter":     {code: keyCenter, label: "ok", lit: "ok"},
-	" ":         {code: keyCenter, label: "ok", lit: "ok"},
-	"o":         {code: keyCenter, label: "ok", lit: "ok"},
-	"esc":       {code: keyBack, label: "back", lit: "back"},
-	"backspace": {code: keyBack, label: "back", lit: "back"},
-	"b":         {code: keyBack, label: "back", lit: "back"},
-	"H":         {code: keyHome, label: "home", lit: "home"},
-	"m":         {code: keyMenu, label: "menu", lit: "menu"},
-	"p":         {code: keyPlayPause, label: "play/pause", lit: "play"},
-	"[":         {code: keyRewind, label: "rewind", lit: "rew"},
-	"]":         {code: keyFastForward, label: "fast forward", lit: "ff"},
-	"+":         {code: keyVolumeUp, label: "volume up", lit: "vol+"},
-	"=":         {code: keyVolumeUp, label: "volume up", lit: "vol+"},
-	"-":         {code: keyVolumeDown, label: "volume down", lit: "vol-"},
-	"M":         {code: keyMute, label: "mute", lit: "mute"},
+	"K":         {code: tv.KeyMenu, label: "details", lit: "info"},
+	"k":         {code: tv.KeyUp, label: "up", lit: "up"},
+	"up":        {code: tv.KeyUp, label: "up", lit: "up"},
+	"j":         {code: tv.KeyDown, label: "down", lit: "down"},
+	"down":      {code: tv.KeyDown, label: "down", lit: "down"},
+	"h":         {code: tv.KeyLeft, label: "left", lit: "left"},
+	"left":      {code: tv.KeyLeft, label: "left", lit: "left"},
+	"l":         {code: tv.KeyRight, label: "right", lit: "right"},
+	"right":     {code: tv.KeyRight, label: "right", lit: "right"},
+	"enter":     {code: tv.KeyCenter, label: "ok", lit: "ok"},
+	" ":         {code: tv.KeyCenter, label: "ok", lit: "ok"},
+	"o":         {code: tv.KeyCenter, label: "ok", lit: "ok"},
+	"esc":       {code: tv.KeyBack, label: "back", lit: "back"},
+	"backspace": {code: tv.KeyBack, label: "back", lit: "back"},
+	"b":         {code: tv.KeyBack, label: "back", lit: "back"},
+	"H":         {code: tv.KeyHome, label: "home", lit: "home"},
+	"m":         {code: tv.KeyMenu, label: "menu", lit: "menu"},
+	"p":         {code: tv.KeyPlayPause, label: "play/pause", lit: "play"},
+	"[":         {code: tv.KeyRewind, label: "rewind", lit: "rew"},
+	"]":         {code: tv.KeyFastForward, label: "fast forward", lit: "ff"},
+	"+":         {code: tv.KeyVolumeUp, label: "volume up", lit: "vol+"},
+	"=":         {code: tv.KeyVolumeUp, label: "volume up", lit: "vol+"},
+	"-":         {code: tv.KeyVolumeDown, label: "volume down", lit: "vol-"},
+	"M":         {code: tv.KeyMute, label: "mute", lit: "mute"},
 }
 
 func (m model) normalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -168,13 +169,13 @@ func (m model) normalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pendingG = false
 		switch k {
 		case "g":
-			return m.fire(act{code: keyHome, label: "home", lit: "home"}, 1)
+			return m.fire(act{code: tv.KeyHome, label: "home", lit: "home"}, 1)
 		case "s":
 			return m.fire(aguatvSettings, 1)
 		case "S":
 			return m.fire(tvSettings, 1)
 		case "h":
-			return m.fire(act{code: keyHome, hold: 1200 * time.Millisecond, label: "quick menu", lit: "home"}, 1)
+			return m.fire(act{code: tv.KeyHome, hold: 1200 * time.Millisecond, label: "quick menu", lit: "home"}, 1)
 		}
 		m.count = ""
 		return m, nil
@@ -208,9 +209,9 @@ func (m model) normalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.count = ""
 		return m, nil
 	case "ctrl+u":
-		return m.fire(act{code: keyUp, label: "up", lit: "up"}, 5*m.times())
+		return m.fire(act{code: tv.KeyUp, label: "up", lit: "up"}, 5*m.times())
 	case "ctrl+d":
-		return m.fire(act{code: keyDown, label: "down", lit: "down"}, 5*m.times())
+		return m.fire(act{code: tv.KeyDown, label: "down", lit: "down"}, 5*m.times())
 	}
 	if a, ok := keyActs[k]; ok {
 		return m.fire(a, m.times())
@@ -228,10 +229,10 @@ func (m model) insertKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r := []rune(m.typed); len(r) > 0 {
 			m.typed = string(r[:len(r)-1])
 		}
-		return m.fire(act{code: keyDel, label: "delete"}, 1)
+		return m.fire(act{code: tv.KeyDel, label: "delete"}, 1)
 	case tea.KeyEnter:
 		m.typed = ""
-		return m.fire(act{code: keyEnter, label: "enter", lit: "ok"}, 1)
+		return m.fire(act{code: tv.KeyEnter, label: "enter", lit: "ok"}, 1)
 	case tea.KeyUp, tea.KeyDown, tea.KeyLeft, tea.KeyRight:
 		return m.fire(keyActs[msg.String()], 1)
 	case tea.KeyRunes, tea.KeySpace:
@@ -266,17 +267,17 @@ func (m model) commandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 var commands = map[string]act{
-	"home":     {code: keyHome, label: "home", lit: "home"},
-	"back":     {code: keyBack, label: "back", lit: "back"},
-	"menu":     {code: keyMenu, label: "menu", lit: "menu"},
+	"home":     {code: tv.KeyHome, label: "home", lit: "home"},
+	"back":     {code: tv.KeyBack, label: "back", lit: "back"},
+	"menu":     {code: tv.KeyMenu, label: "menu", lit: "menu"},
 	"settings": aguatvSettings,
 	"tv":       tvSettings,
-	"details":  {code: keyMenu, label: "details", lit: "info"},
-	"power":    {code: keyPower, label: "power", lit: "power"},
-	"wake":     {code: keyWakeup, label: "wake", lit: "power"},
-	"sleep":    {code: keySleep, label: "sleep", lit: "power"},
-	"mute":     {code: keyMute, label: "mute", lit: "mute"},
-	"quick":    {code: keyHome, hold: 1200 * time.Millisecond, label: "quick menu", lit: "home"},
+	"details":  {code: tv.KeyMenu, label: "details", lit: "info"},
+	"power":    {code: tv.KeyPower, label: "power", lit: "power"},
+	"wake":     {code: tv.KeyWakeup, label: "wake", lit: "power"},
+	"sleep":    {code: tv.KeySleep, label: "sleep", lit: "power"},
+	"mute":     {code: tv.KeyMute, label: "mute", lit: "mute"},
+	"quick":    {code: tv.KeyHome, hold: 1200 * time.Millisecond, label: "quick menu", lit: "home"},
 }
 
 func (m model) run(line string) (tea.Model, tea.Cmd) {
@@ -291,7 +292,7 @@ func (m model) run(line string) (tea.Model, tea.Cmd) {
 	}
 	if ref, ok := strings.CutPrefix(line, "play "); ok {
 		m.status = "opening " + ref
-		return m, play(ref)
+		return m, playRef(ref)
 	}
 	if strings.HasPrefix(line, "type ") {
 		return m.fire(act{text: strings.TrimPrefix(line, "type "), label: "type"}, 1)

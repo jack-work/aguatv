@@ -1,4 +1,4 @@
-package main
+package tv
 
 import (
 	"bufio"
@@ -17,25 +17,25 @@ import (
 )
 
 const (
-	keyUp          = 19
-	keyDown        = 20
-	keyLeft        = 21
-	keyRight       = 22
-	keyCenter      = 23
-	keyBack        = 4
-	keyHome        = 3
-	keyMenu        = 82
-	keyPlayPause   = 85
-	keyRewind      = 89
-	keyFastForward = 90
-	keyVolumeUp    = 24
-	keyVolumeDown  = 25
-	keyMute        = 164
-	keyPower       = 26
-	keyDel         = 67
-	keyEnter       = 66
-	keyWakeup      = 224
-	keySleep       = 223
+	KeyUp          = 19
+	KeyDown        = 20
+	KeyLeft        = 21
+	KeyRight       = 22
+	KeyCenter      = 23
+	KeyBack        = 4
+	KeyHome        = 3
+	KeyMenu        = 82
+	KeyPlayPause   = 85
+	KeyRewind      = 89
+	KeyFastForward = 90
+	KeyVolumeUp    = 24
+	KeyVolumeDown  = 25
+	KeyMute        = 164
+	KeyPower       = 26
+	KeyDel         = 67
+	KeyEnter       = 66
+	KeyWakeup      = 224
+	KeySleep       = 223
 )
 
 const (
@@ -45,13 +45,13 @@ const (
 
 const remoteJar = "/data/local/tmp/aguatv-remote.jar"
 
-type tv interface {
-	press(code int) error
-	shell(args ...string) error
-	hold(code int, d time.Duration) error
-	text(s string) error
-	name() string
-	close()
+type TV interface {
+	Press(code int) error
+	Shell(args ...string) error
+	Hold(code int, d time.Duration) error
+	Text(s string) error
+	Name() string
+	Close()
 }
 
 type scrcpy struct {
@@ -83,7 +83,7 @@ func openScrcpy(a adb.Device, jar, version string) (*scrcpy, error) {
 	stderr, _ := s.cmd.StderrPipe()
 	stdout, _ := s.cmd.StdoutPipe()
 	if err := s.cmd.Start(); err != nil {
-		s.close()
+		s.Close()
 		return nil, err
 	}
 	failed := make(chan string, 1)
@@ -101,7 +101,7 @@ func openScrcpy(a adb.Device, jar, version string) (*scrcpy, error) {
 	for time.Now().Before(deadline) {
 		select {
 		case msg := <-failed:
-			s.close()
+			s.Close()
 			return nil, fmt.Errorf("scrcpy server exited: %s", msg)
 		default:
 		}
@@ -119,7 +119,7 @@ func openScrcpy(a adb.Device, jar, version string) (*scrcpy, error) {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	s.close()
+	s.Close()
 	return nil, errors.New("scrcpy server did not answer")
 }
 
@@ -134,14 +134,14 @@ func (s *scrcpy) key(action, code, repeat int) error {
 	return err
 }
 
-func (s *scrcpy) press(code int) error {
+func (s *scrcpy) Press(code int) error {
 	if err := s.key(actionDown, code, 0); err != nil {
 		return err
 	}
 	return s.key(actionUp, code, 0)
 }
 
-func (s *scrcpy) hold(code int, d time.Duration) error {
+func (s *scrcpy) Hold(code int, d time.Duration) error {
 	if err := s.key(actionDown, code, 0); err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ func (s *scrcpy) hold(code int, d time.Duration) error {
 	return s.key(actionUp, code, 0)
 }
 
-func (s *scrcpy) text(t string) error {
+func (s *scrcpy) Text(t string) error {
 	b := make([]byte, 5+len(t))
 	b[0] = 1
 	binary.BigEndian.PutUint32(b[1:], uint32(len(t)))
@@ -164,14 +164,14 @@ func (s *scrcpy) text(t string) error {
 	return err
 }
 
-func (s *scrcpy) shell(args ...string) error {
+func (s *scrcpy) Shell(args ...string) error {
 	_, err := s.a.Shell(args...)
 	return err
 }
 
-func (s *scrcpy) name() string { return "scrcpy" }
+func (s *scrcpy) Name() string { return "scrcpy" }
 
-func (s *scrcpy) close() {
+func (s *scrcpy) Close() {
 	if s.conn != nil {
 		s.conn.Close()
 	}
@@ -186,28 +186,39 @@ func (s *scrcpy) close() {
 
 type shellInput struct{ a adb.Device }
 
-func (s shellInput) press(code int) error {
+func (s shellInput) Press(code int) error {
 	_, err := s.a.Run("shell", "input", "keyevent", strconv.Itoa(code))
 	return err
 }
 
-func (s shellInput) hold(code int, _ time.Duration) error {
+func (s shellInput) Hold(code int, _ time.Duration) error {
 	_, err := s.a.Run("shell", "input", "keyevent", "--longpress", strconv.Itoa(code))
 	return err
 }
 
-func (s shellInput) text(t string) error {
+func (s shellInput) Text(t string) error {
 	escaped := strings.NewReplacer(" ", "%s", "'", "\\'", "\"", "\\\"", "&", "\\&", "(", "\\(", ")", "\\)",
 		";", "\\;", "<", "\\<", ">", "\\>", "|", "\\|", "*", "\\*", "$", "\\$").Replace(t)
 	_, err := s.a.Run("shell", "input", "text", escaped)
 	return err
 }
 
-func (s shellInput) shell(args ...string) error {
+func (s shellInput) Shell(args ...string) error {
 	_, err := s.a.Shell(args...)
 	return err
 }
 
-func (s shellInput) name() string { return "adb input (slow)" }
+func (s shellInput) Name() string { return "adb input (slow)" }
 
-func (s shellInput) close() {}
+func (s shellInput) Close() {}
+
+func Open(d adb.Device, jar, version string, slow bool) (TV, string) {
+	if slow || jar == "" || version == "" {
+		return shellInput{d}, ""
+	}
+	s, err := openScrcpy(d, jar, version)
+	if err != nil {
+		return shellInput{d}, "fell back to adb input: " + err.Error()
+	}
+	return s, ""
+}

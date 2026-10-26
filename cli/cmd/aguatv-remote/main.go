@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jack-work/aguatv/cli/internal/adb"
+	"github.com/jack-work/aguatv/cli/internal/tv"
 )
 
 var (
@@ -20,20 +21,13 @@ type options struct {
 	slow                            bool
 }
 
-func dial(o options) (tv, string, string, error) {
+func dial(o options) (tv.TV, string, string, error) {
 	a, err := adb.Open(o.adb, o.serial, o.addr)
 	if err != nil {
 		return nil, "", "", err
 	}
-	label := a.Label()
-	if o.slow || o.jar == "" || o.version == "" {
-		return shellInput{a}, label, "", nil
-	}
-	s, err := openScrcpy(a, o.jar, o.version)
-	if err != nil {
-		return shellInput{a}, label, "fell back to adb input: " + err.Error(), nil
-	}
-	return s, label, "", nil
+	t, note := tv.Open(a, o.jar, o.version, o.slow)
+	return t, a.Label(), note, nil
 }
 
 func main() {
@@ -54,7 +48,7 @@ func main() {
 	}
 
 	queue := make(chan act, 256)
-	ready := make(chan tv, 1)
+	ready := make(chan tv.TV, 1)
 	send := func(a act) bool {
 		select {
 		case queue <- a:
@@ -69,7 +63,7 @@ func main() {
 			return failedMsg{err}
 		}
 		ready <- t
-		via := label + " · " + t.name()
+		via := label + " · " + t.Name()
 		if note != "" {
 			via += ": " + note
 		}
@@ -81,13 +75,13 @@ func main() {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		var t tv
+		var t tv.TV
 		select {
 		case t = <-ready:
 		case <-quit:
 			return
 		}
-		defer t.close()
+		defer t.Close()
 		for {
 			select {
 			case <-quit:
@@ -96,13 +90,13 @@ func main() {
 				var err error
 				switch {
 				case len(a.shell) > 0:
-					err = t.shell(a.shell...)
+					err = t.Shell(a.shell...)
 				case a.text != "":
-					err = t.text(a.text)
+					err = t.Text(a.text)
 				case a.hold > 0:
-					err = t.hold(a.code, a.hold)
+					err = t.Hold(a.code, a.hold)
 				default:
-					err = t.press(a.code)
+					err = t.Press(a.code)
 				}
 				if err != nil {
 					p.Send(sendErrMsg{err})
@@ -116,7 +110,7 @@ func main() {
 	<-done
 	select {
 	case t := <-ready:
-		t.close()
+		t.Close()
 	default:
 	}
 	if err != nil {
