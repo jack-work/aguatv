@@ -21,6 +21,8 @@
       dumbtv,
     }:
     {
+      nixosModules.hub = import ./nix/hub-module.nix self;
+
       lib.mkTvs =
         {
           system,
@@ -212,6 +214,9 @@
         apps = {
           default = flake-utils.lib.mkApp { drv = aguatv; };
           remote = flake-utils.lib.mkApp { drv = remote; };
+        };
+        checks = nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          hub-module = import ./nix/hub-test.nix { inherit pkgs self; };
         };
         devShells.default = pkgs.mkShell {
           packages = [
