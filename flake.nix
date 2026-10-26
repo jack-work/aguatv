@@ -130,9 +130,18 @@
       {
         packages = {
           inherit web apk remote aguatv;
-          default = aguatv;
+          default = pkgs.symlinkJoin {
+            name = "aguatv-${version}";
+            paths = [
+              aguatv
+              remote
+            ];
+          };
         };
-        apps.default = flake-utils.lib.mkApp { drv = aguatv; };
+        apps = {
+          default = flake-utils.lib.mkApp { drv = aguatv; };
+          remote = flake-utils.lib.mkApp { drv = remote; };
+        };
         devShells.default = pkgs.mkShell {
           packages = [
             jdk

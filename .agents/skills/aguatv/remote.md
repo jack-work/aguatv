@@ -1,7 +1,9 @@
 # The terminal remote
 
 `remote/` is a Go program on bubbletea v1.3.10, bubbles v1.0.0 and lipgloss
-v1.1.0. It does not depend on aguatv being installed.
+v1.1.0. It is generic: it uses only standard Android keycodes and adb, and does
+not need aguatv on the TV. The status line names the TV by its `device_name`
+setting, falling back to `ro.product.model`.
 
 ```
 remote/

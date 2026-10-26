@@ -19,27 +19,28 @@ type options struct {
 	slow                            bool
 }
 
-func dial(o options) (tv, string, error) {
+func dial(o options) (tv, string, string, error) {
 	a := adb{bin: o.adb, serial: o.serial}
 	if o.addr != "" {
 		if err := a.connect(o.addr); err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
 		if a.serial == "" {
 			a.serial = o.addr
 		}
 	}
 	if err := a.ready(); err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
+	label := a.label()
 	if o.slow || o.jar == "" || o.version == "" {
-		return shellInput{a}, "", nil
+		return shellInput{a}, label, "", nil
 	}
 	s, err := openScrcpy(a, o.jar, o.version)
 	if err != nil {
-		return shellInput{a}, "fell back to adb input: " + err.Error(), nil
+		return shellInput{a}, label, "fell back to adb input: " + err.Error(), nil
 	}
-	return s, "", nil
+	return s, label, "", nil
 }
 
 func main() {
@@ -51,7 +52,7 @@ func main() {
 	flag.StringVar(&o.version, "scrcpy-version", scrcpyVersion, "version of that jar")
 	flag.BoolVar(&o.slow, "slow", false, "use adb shell input instead of the scrcpy server")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: aguatv-remote [-c host:port] [-s serial] [-slow]\n\nA vim-keyed remote for an Android or Fire TV over adb. ? inside lists the keys.\n\n")
+		fmt.Fprintf(os.Stderr, "usage: aguatv-remote [-c host:port] [-s serial] [-slow]\n\nA vim-keyed remote for any Android TV, Google TV or Fire TV that adb can reach. ? inside lists the keys.\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -70,15 +71,16 @@ func main() {
 		}
 	}
 	connect := func() tea.Msg {
-		t, note, err := dial(o)
+		t, label, note, err := dial(o)
 		if err != nil {
 			return failedMsg{err}
 		}
 		ready <- t
+		via := label + " · " + t.name()
 		if note != "" {
-			return connectedMsg{via: t.name() + ": " + note}
+			via += ": " + note
 		}
-		return connectedMsg{via: t.name()}
+		return connectedMsg{via: via}
 	}
 
 	p := tea.NewProgram(newModel(send, connect), tea.WithAltScreen())

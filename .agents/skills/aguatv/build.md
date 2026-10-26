@@ -6,7 +6,11 @@ Everything builds with Nix; there is no Gradle.
 |---|---|
 | `.#web` | the page, run through `zanni.lib.mkBoiledSite` with boil, gesso, phosphor and fontpack. `zanni-check` runs on the result and fails the build if an effect did not arrive |
 | `.#apk` | unsigned, aligned APK: `aapt2` compile and link, `javac --release 8 -Werror`, `d8`, `zipalign`. The built page goes in as `assets/web/` |
-| `.#aguatv` | the CLI, with the APK path and build-tools baked in |
+| `.#aguatv` | the CLI, with the APK path, build-tools and the remote baked in |
+| `.#remote` | `aguatv-remote`, by `buildGoModule`; the scrcpy jar, its version and adb come in through `-ldflags`. Bump `vendorHash` when `remote/go.sum` changes |
+| `.#default` | both binaries in one profile entry |
+
+`nix run` runs `aguatv`; `nix run .#remote` runs the remote.
 
 The Android SDK comes from `androidenv.composeAndroidPackages` with platform 28
 and build-tools 34. Its licence must be accepted, which the flake does through

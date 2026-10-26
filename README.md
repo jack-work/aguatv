@@ -1,6 +1,17 @@
 # aguatv
 
-A home screen for Fire TV Edition televisions, drawn by a web page.
+Two programs for televisions that run Android, built by one flake:
+
+- **aguatv**, a home screen for Fire TV Edition televisions, drawn by a web page.
+- **aguatv-remote**, a remote control in the terminal with vim keys, for any
+  Android TV, Google TV or Fire TV that adb can reach.
+
+```sh
+nix profile install github:jack-work/aguatv      # both: aguatv and aguatv-remote
+nix run github:jack-work/aguatv#remote            # just the remote
+```
+
+## The home screen
 
 Amazon's home screen is a storefront. aguatv replaces it with three rows: the TV's
 inputs, the apps you installed, and a few system actions. The page is plain HTML,
@@ -34,7 +45,7 @@ takes over the HOME button. Later installs must use the same key, so keep that f
 | `aguatv undo` | give HOME back to Amazon's launcher; aguatv stays installed |
 | `aguatv status` | whether the HOME guard is bound and what is in front |
 | `aguatv apk [path]` | write a signed APK without installing |
-| `aguatv remote [-c host:port]` | a TV remote in the terminal, with vim keys |
+| `aguatv remote [-c host:port]` | the same as `aguatv-remote` |
 
 With several devices connected, set `ANDROID_SERIAL`.
 
@@ -51,11 +62,13 @@ With several devices connected, set `ANDROID_SERIAL`.
 The System row opens Settings, turns the boil animation on or off, shows hidden
 apps, and opens Amazon's home screen on purpose.
 
-## Remote
+## The remote
 
-`aguatv remote` is a remote control in the terminal. It works on any Android or
-Fire TV that adb can reach, aguatv installed or not, and over Tailscale or any
-other route to the TV's port 5555.
+`aguatv-remote` (also `aguatv remote`) is a remote control in the terminal. It
+needs nothing installed on the TV: any Android TV, Google TV or Fire TV with ADB
+debugging on will do, reached on the local network, over Tailscale, or by any
+other route to its port 5555. `-c host:port` runs `adb connect` first; `-s`
+picks a device when several are connected.
 
 | keys | does |
 |---|---|

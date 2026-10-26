@@ -95,6 +95,16 @@ func (a adb) ready() error {
 	return nil
 }
 
+func (a adb) label() string {
+	for _, q := range [][]string{{"settings", "get", "global", "device_name"}, {"getprop", "ro.product.model"}} {
+		out, err := a.run(append([]string{"shell"}, q...)...)
+		if err == nil && out != "" && out != "null" {
+			return out
+		}
+	}
+	return a.serial
+}
+
 type scrcpy struct {
 	a       adb
 	cmd     *exec.Cmd
