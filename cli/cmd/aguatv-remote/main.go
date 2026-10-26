@@ -6,6 +6,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jack-work/aguatv/cli/internal/adb"
 )
 
 var (
@@ -20,19 +21,11 @@ type options struct {
 }
 
 func dial(o options) (tv, string, string, error) {
-	a := adb{bin: o.adb, serial: o.serial}
-	if o.addr != "" {
-		if err := a.connect(o.addr); err != nil {
-			return nil, "", "", err
-		}
-		if a.serial == "" {
-			a.serial = o.addr
-		}
-	}
-	if err := a.ready(); err != nil {
+	a, err := adb.Open(o.adb, o.serial, o.addr)
+	if err != nil {
 		return nil, "", "", err
 	}
-	label := a.label()
+	label := a.Label()
 	if o.slow || o.jar == "" || o.version == "" {
 		return shellInput{a}, label, "", nil
 	}

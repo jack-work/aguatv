@@ -6,11 +6,12 @@ not need aguatv on the TV. The status line names the TV by its `device_name`
 setting, falling back to `ro.product.model`.
 
 ```
-remote/
+cli/cmd/aguatv-remote/
   main.go     flags, the key queue and the worker that owns the connection
   tv.go       the tv interface: scrcpy control socket, or adb shell input
   ui.go       the model: modes, counts, the drawn remote, the help
   ui_test.go  key handling against a recording sender
+cli/internal/adb/  shared with aguatv-deploy
 ```
 
 ## Why scrcpy
@@ -54,7 +55,7 @@ them in order. A full queue drops the key and says so.
 
 ## Testing
 
-`go test -race ./...` in `remote/` covers the key logic. For anything about the
+`go test -race ./...` in `cli/` covers the key logic. For anything about the
 screen or the TV, run the binary in tmux on a private socket, never the default
 one, and look at the TV with `adb shell screencap`:
 

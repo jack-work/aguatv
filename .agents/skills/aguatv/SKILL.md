@@ -19,9 +19,10 @@ web/
   index.html   the page; zanni markers are replaced at build time
   home.css     layout, on top of zanni's gesso, phosphor, fontpack and boil
   home.js      rows, D-pad focus, the clock, and window.aguatv
-remote/        aguatv remote: a bubbletea TUI that sends keys over adb
+cli/           one Go module: cmd/aguatv-remote, cmd/aguatv-deploy, internal/adb
+nix/           module.nix (TV options), dumbtv.nix (dumbtv's lists as a layer)
 bin/aguatv     install, undo, status, apk, remote
-flake.nix      web, apk and aguatv packages
+flake.nix      web, apk, cli, remote, aguatv packages; lib.mkTvs
 ```
 
 ## Rules
@@ -40,5 +41,6 @@ flake.nix      web, apk and aguatv packages
 | [takeover.md](takeover.md) | HOME lands on Amazon's screen, the guard will not bind, or you touch `Guard.java` or `bin/aguatv` |
 | [bridge.md](bridge.md) | adding something the page can ask for or do, or changing keys |
 | [build.md](build.md) | the build fails, the SDK changes, or signing goes wrong |
+| [deploy.md](deploy.md) | declaring a TV's packages and settings, or changing aguatv-deploy |
 | [remote.md](remote.md) | changing the terminal remote, its keys, or how it reaches the TV |
 | [memory.md](memory.md) | the TV feels slow, or before adding an effect to the page |

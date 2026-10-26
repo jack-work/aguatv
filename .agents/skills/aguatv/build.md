@@ -7,8 +7,9 @@ Everything builds with Nix; there is no Gradle.
 | `.#web` | the page, run through `zanni.lib.mkBoiledSite` with boil, gesso, phosphor and fontpack. `zanni-check` runs on the result and fails the build if an effect did not arrive |
 | `.#apk` | unsigned, aligned APK: `aapt2` compile and link, `javac --release 8 -Werror`, `d8`, `zipalign`. The built page goes in as `assets/web/` |
 | `.#aguatv` | the CLI, with the APK path, build-tools and the remote baked in |
-| `.#remote` | `aguatv-remote`, by `buildGoModule`; the scrcpy jar, its version and adb come in through `-ldflags`. Bump `vendorHash` when `remote/go.sum` changes |
-| `.#default` | both binaries in one profile entry |
+| `.#cli` | `aguatv-remote` and `aguatv-deploy`, by `buildGoModule`; the scrcpy jar, its version and adb come in through `-ldflags`. Bump `vendorHash` when `cli/go.sum` changes |
+| `.#remote` | only `aguatv-remote`, linked out of `.#cli`; what deploy offers to install |
+| `.#default` | `aguatv`, `aguatv-remote` and `aguatv-deploy` |
 
 `nix run` runs `aguatv`; `nix run .#remote` runs the remote.
 

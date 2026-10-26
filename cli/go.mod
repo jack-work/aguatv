@@ -1,4 +1,4 @@
-module github.com/jack-work/aguatv/remote
+module github.com/jack-work/aguatv/cli
 
 go 1.24.2
 

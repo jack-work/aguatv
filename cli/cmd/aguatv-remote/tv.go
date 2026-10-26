@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jack-work/aguatv/cli/internal/adb"
 )
 
 const (
@@ -52,73 +54,20 @@ type tv interface {
 	close()
 }
 
-type adb struct {
-	bin    string
-	serial string
-}
-
-func (a adb) args(rest ...string) []string {
-	if a.serial == "" {
-		return rest
-	}
-	return append([]string{"-s", a.serial}, rest...)
-}
-
-func (a adb) run(rest ...string) (string, error) {
-	out, err := exec.Command(a.bin, a.args(rest...)...).CombinedOutput()
-	s := strings.TrimSpace(string(out))
-	if err != nil {
-		return s, fmt.Errorf("adb %s: %v: %s", strings.Join(rest, " "), err, s)
-	}
-	return s, nil
-}
-
-func (a adb) connect(addr string) error {
-	out, err := a.run("connect", addr)
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(out, "connected") {
-		return errors.New(out)
-	}
-	return nil
-}
-
-func (a adb) ready() error {
-	out, err := a.run("get-state")
-	if err != nil {
-		return fmt.Errorf("no TV: %s", out)
-	}
-	if out != "device" {
-		return fmt.Errorf("TV is %s; accept the debugging prompt on the TV", out)
-	}
-	return nil
-}
-
-func (a adb) label() string {
-	for _, q := range [][]string{{"settings", "get", "global", "device_name"}, {"getprop", "ro.product.model"}} {
-		out, err := a.run(append([]string{"shell"}, q...)...)
-		if err == nil && out != "" && out != "null" {
-			return out
-		}
-	}
-	return a.serial
-}
-
 type scrcpy struct {
-	a       adb
+	a       adb.Device
 	cmd     *exec.Cmd
 	conn    net.Conn
 	forward string
 }
 
-func openScrcpy(a adb, jar, version string) (*scrcpy, error) {
-	if _, err := a.run("push", jar, remoteJar); err != nil {
+func openScrcpy(a adb.Device, jar, version string) (*scrcpy, error) {
+	if _, err := a.Run("push", jar, remoteJar); err != nil {
 		return nil, err
 	}
 	scid := fmt.Sprintf("%08x", rand.Uint32()&0x7fffffff)
 	socket := "localabstract:scrcpy_" + scid
-	port, err := a.run("forward", "tcp:0", socket)
+	port, err := a.Run("forward", "tcp:0", socket)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +75,7 @@ func openScrcpy(a adb, jar, version string) (*scrcpy, error) {
 		return nil, fmt.Errorf("adb forward gave %q", port)
 	}
 	s := &scrcpy{a: a, forward: "tcp:" + port}
-	s.cmd = exec.Command(a.bin, a.args("shell",
+	s.cmd = exec.Command(a.Bin, a.Args("shell",
 		"CLASSPATH="+remoteJar, "app_process", "/", "com.genymobile.scrcpy.Server", version,
 		"scid="+scid, "log_level=warn", "video=false", "audio=false", "control=true",
 		"tunnel_forward=true", "send_device_meta=false", "send_dummy_byte=true",
@@ -226,26 +175,26 @@ func (s *scrcpy) close() {
 		s.cmd.Wait()
 	}
 	if s.forward != "" {
-		s.a.run("forward", "--remove", s.forward)
+		s.a.Run("forward", "--remove", s.forward)
 	}
 }
 
-type shellInput struct{ a adb }
+type shellInput struct{ a adb.Device }
 
 func (s shellInput) press(code int) error {
-	_, err := s.a.run("shell", "input", "keyevent", strconv.Itoa(code))
+	_, err := s.a.Run("shell", "input", "keyevent", strconv.Itoa(code))
 	return err
 }
 
 func (s shellInput) hold(code int, _ time.Duration) error {
-	_, err := s.a.run("shell", "input", "keyevent", "--longpress", strconv.Itoa(code))
+	_, err := s.a.Run("shell", "input", "keyevent", "--longpress", strconv.Itoa(code))
 	return err
 }
 
 func (s shellInput) text(t string) error {
 	escaped := strings.NewReplacer(" ", "%s", "'", "\\'", "\"", "\\\"", "&", "\\&", "(", "\\(", ")", "\\)",
 		";", "\\;", "<", "\\<", ">", "\\>", "|", "\\|", "*", "\\*", "$", "\\$").Replace(t)
-	_, err := s.a.run("shell", "input", "text", escaped)
+	_, err := s.a.Run("shell", "input", "text", escaped)
 	return err
 }
 

@@ -5,6 +5,10 @@ Two programs for televisions that run Android, built by one flake:
 - **aguatv**, a home screen for Fire TV Edition televisions, drawn by a web page.
 - **aguatv-remote**, a remote control in the terminal with vim keys, for any
   Android TV, Google TV or Fire TV that adb can reach.
+- **aguatv-deploy**, which makes a Fire TV match a Nix module: packages disabled,
+  starved or removed, settings, and the home screen. Built on
+  [dumbtv](https://github.com/humblemuzzu/dumbtv)'s package lists, with your own
+  module on top. See [`deploy.md`](.agents/skills/aguatv/deploy.md).
 
 ```sh
 nix profile install github:jack-work/aguatv      # both: aguatv and aguatv-remote
@@ -94,7 +98,7 @@ does. `-slow` uses `adb shell input` instead.
 ```sh
 nix build .#web      # the page alone; open result/index.html in a browser
 nix build .#apk      # unsigned APK
-nix build .#remote   # the terminal remote; go test ./... in remote/
+nix build .#cli      # aguatv-remote and aguatv-deploy; go test ./... in cli/
 nix develop          # adb, a JDK and ANDROID_HOME
 ```
 

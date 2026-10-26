@@ -1,11 +1,15 @@
 {
-  description = "aguatv: a home screen for Fire TV, drawn by a web page";
+  description = "aguatv: a home screen, a remote and a declarative deploy for Fire TV";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     zanni.url = "github:jack-work/zanni";
     zanni.inputs.nixpkgs.follows = "nixpkgs";
+    dumbtv = {
+      url = "github:humblemuzzu/dumbtv";
+      flake = false;
+    };
   };
 
   outputs =
@@ -14,8 +18,53 @@
       nixpkgs,
       flake-utils,
       zanni,
+      dumbtv,
     }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ] (
+    {
+      lib.mkTvs =
+        {
+          system,
+          tvs,
+          specialArgs ? { },
+        }:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          own = self.packages.${system};
+          eval =
+            name: module:
+            (nixpkgs.lib.evalModules {
+              inherit specialArgs;
+              modules = [
+                ./nix/module.nix
+                (import ./nix/dumbtv.nix { inherit dumbtv; })
+                { name = nixpkgs.lib.mkDefault name; }
+                module
+              ];
+            }).config;
+          configs = builtins.mapAttrs eval tvs;
+          planFile = name: pkgs.writeText "aguatv-${name}.json" (builtins.toJSON configs.${name}.plan);
+          deployFor =
+            name:
+            pkgs.writeShellApplication {
+              name = "deploy-${name}";
+              text = ''
+                export AGUATV_CLI=${nixpkgs.lib.getExe own.aguatv}
+                export AGUATV_APK=${own.apk}
+                export AGUATV_REMOTE_PKG=${own.remote}
+                exec ${own.cli}/bin/aguatv-deploy "$@" ${planFile name}
+              '';
+            };
+        in
+        {
+          inherit configs;
+          packages = nixpkgs.lib.mapAttrs' (name: _: nixpkgs.lib.nameValuePair "${name}-plan" (planFile name)) tvs;
+          apps = builtins.mapAttrs (name: _: {
+            type = "app";
+            program = nixpkgs.lib.getExe (deployFor name);
+          }) tvs;
+        };
+    }
+    // flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ] (
       system:
       let
         pkgs = import nixpkgs {
@@ -93,10 +142,10 @@
           '';
         };
 
-        remote = pkgs.buildGoModule {
-          pname = "aguatv-remote";
+        cli = pkgs.buildGoModule {
+          pname = "aguatv-cli";
           inherit version;
-          src = ./remote;
+          src = ./cli;
           vendorHash = "sha256-TUbaUoqDZoQTkcOMtoE/FlAiqkWN+x49JeGkDguh2UU=";
           ldflags = [
             "-s"
@@ -105,9 +154,13 @@
             "-X main.scrcpyVersion=${pkgs.scrcpy.version}"
             "-X main.defaultAdb=${pkgs.android-tools}/bin/adb"
           ];
-          postInstall = "mv $out/bin/remote $out/bin/aguatv-remote";
           meta.mainProgram = "aguatv-remote";
         };
+
+        remote = pkgs.runCommand "aguatv-remote-${version}" { meta.mainProgram = "aguatv-remote"; } ''
+          mkdir -p $out/bin
+          ln -s ${cli}/bin/aguatv-remote $out/bin/aguatv-remote
+        '';
 
         aguatv = pkgs.writeShellApplication {
           name = "aguatv";
@@ -129,12 +182,18 @@
       in
       {
         packages = {
-          inherit web apk remote aguatv;
+          inherit
+            web
+            apk
+            cli
+            remote
+            aguatv
+            ;
           default = pkgs.symlinkJoin {
             name = "aguatv-${version}";
             paths = [
               aguatv
-              remote
+              cli
             ];
           };
         };

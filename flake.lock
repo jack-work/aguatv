@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "dumbtv": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792962015,
+        "narHash": "sha256-gyHkjJ87LK7fz8CGhVau9DC4ICMTEnXy6/xrEIYWwtk=",
+        "owner": "humblemuzzu",
+        "repo": "dumbtv",
+        "rev": "225bb00cc80228d69a793c3be49c0c8c8afa533a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "humblemuzzu",
+        "repo": "dumbtv",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -54,6 +70,7 @@
     },
     "root": {
       "inputs": {
+        "dumbtv": "dumbtv",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
         "zanni": "zanni"
