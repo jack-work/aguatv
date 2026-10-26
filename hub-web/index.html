@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" data-scheme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a0d0f">
+<title>aguatv</title>
+<link rel="stylesheet" href="hub.css">
+</head>
+<body class="gesso-stage">
+<!-- zanni:boil -->
+<!-- zanni:gesso -->
+<!-- zanni:fontpack -->
+
+<main class="remote">
+  <header class="top">
+    <h1 class="mark fontpack-display boil-text-squiggle">aguatv</h1>
+    <div class="tv fontpack-mono"><span id="dot" class="dot"></span><span id="who"></span></div>
+  </header>
+
+  <section class="panel">
+    <div class="title">Screens</div>
+    <div class="devices" id="devices"></div>
+    <a class="link fontpack-mono" href="/tvlogin">link a screen</a>
+  </section>
+
+  <section class="panel" id="cast" hidden>
+    <div class="title" id="castTitle">Playing</div>
+    <div class="row four">
+      <button data-c="skip" data-v="-30">−30</button>
+      <button data-c="toggle">▶‖</button>
+      <button data-c="skip" data-v="30">+30</button>
+      <button data-c="stop">stop</button>
+    </div>
+    <form class="field" id="castForm">
+      <input id="ref" class="fontpack-mono" placeholder="cast a file path" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="submit">cast</button>
+    </form>
+    <div class="row two">
+      <button id="rename">rename</button>
+      <button id="unlink">unlink</button>
+    </div>
+  </section>
+
+  <section class="panel" id="adb" hidden>
+    <div class="title" id="adbTitle">Remote</div>
+    <section class="row three">
+      <button data-a="power" class="small">power</button>
+      <button data-a="settings" class="small">aguatv</button>
+      <button data-a="tvsettings" class="small">TV set.</button>
+    </section>
+    <section class="pad" aria-label="direction pad">
+      <button data-a="up" class="up" aria-label="up">▲</button>
+      <button data-a="left" class="left" aria-label="left">◀</button>
+      <button data-a="ok" class="ok fontpack-display">OK</button>
+      <button data-a="right" class="right" aria-label="right">▶</button>
+      <button data-a="down" class="down" aria-label="down">▼</button>
+    </section>
+    <section class="row three">
+      <button data-a="back">back</button>
+      <button data-a="home">home</button>
+      <button data-a="menu">details</button>
+    </section>
+    <section class="row three">
+      <button data-a="rewind" aria-label="rewind">◀◀</button>
+      <button data-a="play" aria-label="play or pause">▶‖</button>
+      <button data-a="forward" aria-label="fast forward">▶▶</button>
+    </section>
+    <section class="row three">
+      <button data-a="voldown">vol −</button>
+      <button data-a="mute">mute</button>
+      <button data-a="volup">vol +</button>
+    </section>
+    <form class="field" id="type">
+      <input id="text" class="fontpack-mono" placeholder="type on the TV" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="submit">send</button>
+    </form>
+  </section>
+
+  <footer class="status fontpack-mono" id="status">? for keys</footer>
+  <pre class="keys fontpack-mono" id="keys" hidden>h j k l  arrows   d-pad      enter o space   ok
+b esc ⌫          back       gg H            home
+K m              details    gs  gS          aguatv / TV settings
+p                play       [ ]             rewind / forward
++ = -            volume     M               mute
+5j               repeat     i               type     :  cast a path</pre>
+</main>
+
+<svg class="witness" width="0" height="0" aria-hidden="true">
+  <g class="boil-slack"></g><g class="boil-text"></g>
+  <g class="boil-text-fine"></g><g class="boil-text-strong"></g><g class="boil-text-erode"></g>
+  <g class="boil-ui"></g><g class="boil-ui-squiggle"></g><g class="boil-ui-fine"></g>
+  <g class="boil-ui-strong"></g><g class="boil-ui-erode"></g>
+  <g class="boil-stage"></g><g class="boil-stage-squiggle"></g><g class="boil-stage-fine"></g>
+  <g class="boil-stage-strong"></g><g class="boil-stage-erode"></g>
+  <g class="gesso"></g><g class="fontpack-prose"></g>
+</svg>
+
+<script src="hub.js"></script>
+</body>
+</html>

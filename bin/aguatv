@@ -13,6 +13,7 @@ usage: aguatv install     build, sign and install, then take over HOME
        aguatv status      show what HOME resolves to and whether the guard is bound
        aguatv remote      a vim-keyed remote in the terminal (aguatv remote -h)
        aguatv player      install or update the video player app
+       aguatv receiver <hub URL>  open the cast receiver, linked to that hub
        aguatv play <ref>  play an https URL on the TV; other references go through AGUATV_PRESIGN
 
 The TV is whatever adb is connected to; set ANDROID_SERIAL when there are several.
@@ -248,6 +249,12 @@ cmd_play() {
 case ${1:-} in
   install) cmd_install ;;
   player) need_device; install_player ;;
+  receiver)
+    [[ ${2:-} == https://* || ${2:-} == http://localhost:* ]] || die "usage: aguatv receiver <hub URL>"
+    need_device
+    player_current || install_player
+    sh_ am start -n tv.aguatv.player/.Receiver --es hub "$(squote "$2")" >/dev/null
+    echo "receiver pointed at $2" ;;
   undo) cmd_undo ;;
   status) cmd_status ;;
   remote) shift; exec "$AGUATV_REMOTE" "$@" ;;

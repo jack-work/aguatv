@@ -92,6 +92,22 @@
         sdkRoot = "${sdk}/libexec/android-sdk";
         jdk = pkgs.jdk17_headless;
 
+        hubWeb = zanni.lib.mkBoiledSite {
+          inherit pkgs version;
+          pname = "aguatv-hub-web";
+          src = ./hub-web;
+          components = [
+            "boil"
+            "gesso"
+            "fontpack"
+          ];
+          pages = [
+            "index.html"
+            "tvlogin.html"
+            "receiver.html"
+          ];
+        };
+
         web = zanni.lib.mkBoiledSite {
           inherit pkgs version;
           pname = "aguatv-web";
@@ -147,7 +163,7 @@
           pname = "aguatv-cli";
           inherit version;
           src = ./cli;
-          vendorHash = "sha256-TUbaUoqDZoQTkcOMtoE/FlAiqkWN+x49JeGkDguh2UU=";
+          vendorHash = "sha256-yKJGYI9eiOwdLazThjlYs1HSh/dwL35NvCYp1PLlOdE=";
           ldflags = [
             "-s"
             "-w"
@@ -193,6 +209,7 @@
             remote
             player
             aguatv
+            hubWeb
             ;
           default = pkgs.symlinkJoin {
             name = "aguatv-${version}";

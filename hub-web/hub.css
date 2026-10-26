@@ -1,0 +1,127 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { background: var(--stage); }
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  color: var(--stage-ink);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  --gesso-cell: 6px;
+}
+
+.witness { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.remote {
+  max-width: 26rem;
+  margin: 0 auto;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem max(1.2rem, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--z-rule);
+  padding-bottom: 0.4rem;
+}
+
+.mark { font-size: 2.4rem; color: var(--gold-bright); font-weight: normal; line-height: 1; }
+
+.tv { font-size: 1rem; color: var(--stage-muted); display: flex; align-items: center; gap: 0.4rem; }
+
+.dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--stage-muted); opacity: 0.6; }
+.dot.on { background: var(--z-ok); opacity: 1; }
+.dot.err { background: var(--z-fail); opacity: 1; }
+
+button {
+  font-family: var(--fontpack-mono);
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+  color: var(--stage-ink);
+  background: rgba(240, 223, 200, 0.05);
+  border: 1px solid var(--z-line);
+  border-radius: 0;
+  padding: 0.85rem 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button:focus-visible { outline: 0.15rem solid var(--gold-bright); outline-offset: 0.15rem; }
+button.lit, button:active { background: var(--gold-bright); color: var(--stage); border-color: var(--gold-bright); }
+button.small { font-size: 0.95rem; padding: 0.6rem 0.4rem; }
+
+.row { display: grid; gap: 0.6rem; }
+.row.three { grid-template-columns: repeat(3, 1fr); }
+
+.pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 0.6rem;
+  aspect-ratio: 1;
+  max-width: 19rem;
+  width: 100%;
+  margin: 0.4rem auto;
+}
+
+.pad button { font-size: 1.6rem; }
+.pad .up { grid-column: 2; grid-row: 1; }
+.pad .left { grid-column: 1; grid-row: 2; }
+.pad .ok { grid-column: 2; grid-row: 2; font-size: 2rem; border-color: var(--gold); color: var(--gold-bright); }
+.pad .right { grid-column: 3; grid-row: 2; }
+.pad .down { grid-column: 2; grid-row: 3; }
+
+.field { display: grid; grid-template-columns: 1fr auto; gap: 0.6rem; }
+
+.field input {
+  font-size: 1.1rem;
+  color: var(--stage-ink);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--z-line);
+  border-radius: 0;
+  padding: 0.7rem 0.8rem;
+  min-width: 0;
+}
+
+.field input:focus { outline: none; border-color: var(--gold-bright); }
+.field button { padding: 0.7rem 1rem; }
+
+.status { min-height: 1.4rem; font-size: 1rem; color: var(--stage-muted); }
+.status.err { color: var(--z-fail); }
+
+.keys { font-size: 0.85rem; color: var(--stage-muted); white-space: pre; overflow-x: auto; }
+
+.devices { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.device {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--z-line);
+  background: rgba(240, 223, 200, 0.04);
+  text-align: left;
+}
+
+.device.sel { border-color: var(--gold-bright); }
+.device .name { font-family: var(--fontpack-prose); font-size: 1.2rem; color: var(--stage-ink); }
+.device .meta { grid-column: 1 / -1; font-family: var(--fontpack-mono); font-size: 0.9rem; color: var(--stage-muted); }
+.device .kind { font-family: var(--fontpack-mono); font-size: 0.85rem; color: var(--gold-bright); }
+
+.panel { display: flex; flex-direction: column; gap: 0.8rem; }
+.panel[hidden] { display: none; }
+.title { font-family: var(--fontpack-mono); font-size: 0.9rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--stage-muted); }
+.row.four { grid-template-columns: repeat(4, 1fr); }
+.row.two { grid-template-columns: repeat(2, 1fr); }
+.empty { color: var(--stage-muted); font-family: var(--fontpack-prose); }
+.link { color: var(--gold-bright); }
+.card { border: 1px solid var(--gold); padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.card dl { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; font-family: var(--fontpack-prose); }
+.card dt { font-family: var(--fontpack-mono); color: var(--stage-muted); font-size: 0.9rem; }

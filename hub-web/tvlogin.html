@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" data-scheme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a0d0f">
+<title>Link a screen · aguatv</title>
+<link rel="stylesheet" href="hub.css">
+</head>
+<body class="gesso-stage">
+<!-- zanni:boil -->
+<!-- zanni:gesso -->
+<!-- zanni:fontpack -->
+
+<main class="remote">
+  <header class="top">
+    <h1 class="mark fontpack-display boil-text-squiggle">aguatv</h1>
+    <div class="tv fontpack-mono"><span id="who"></span></div>
+  </header>
+
+  <section class="panel">
+    <div class="title">Link a screen</div>
+    <p class="empty">Enter the code the TV or browser is showing.</p>
+    <form class="field" id="lookup">
+      <input id="code" class="fontpack-mono" placeholder="K7M-QX4" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9">
+      <button type="submit">find</button>
+    </form>
+  </section>
+
+  <section class="card" id="found" hidden>
+    <div class="title">Asking to be linked</div>
+    <dl>
+      <dt>kind</dt><dd id="kind"></dd>
+      <dt>asked</dt><dd id="asked"></dd>
+      <dt>from</dt><dd id="from"></dd>
+      <dt>lasts</dt><dd id="lasts"></dd>
+    </dl>
+    <form class="field" id="approve">
+      <input id="name" class="fontpack-mono" placeholder="name" autocomplete="off" maxlength="64">
+      <button type="submit">link</button>
+    </form>
+  </section>
+
+  <footer class="status fontpack-mono" id="status"></footer>
+  <a class="link fontpack-mono" href="/">your screens</a>
+</main>
+
+<svg class="witness" width="0" height="0" aria-hidden="true">
+  <g class="boil-slack"></g><g class="boil-text"></g>
+  <g class="boil-text-fine"></g><g class="boil-text-strong"></g><g class="boil-text-erode"></g>
+  <g class="boil-ui"></g><g class="boil-ui-squiggle"></g><g class="boil-ui-fine"></g>
+  <g class="boil-ui-strong"></g><g class="boil-ui-erode"></g>
+  <g class="boil-stage"></g><g class="boil-stage-squiggle"></g><g class="boil-stage-fine"></g>
+  <g class="boil-stage-strong"></g><g class="boil-stage-erode"></g>
+  <g class="gesso"></g><g class="fontpack-prose"></g>
+</svg>
+
+<script src="tvlogin.js"></script>
+</body>
+</html>

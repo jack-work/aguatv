@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en" data-scheme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a0d0f">
+<title>aguatv</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--stage); overflow: hidden; }
+html { font-size: calc(100vw / 60); }
+@media (max-aspect-ratio: 1/1) { html { font-size: calc(100vw / 30); } }
+body { color: var(--stage-ink); --gesso-cell: 0.375rem; }
+.witness { position: absolute; width: 0; height: 0; overflow: hidden; }
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.6rem; padding: 2rem; text-align: center; }
+.screen[hidden] { display: none; }
+.mark { font-size: 3.4rem; color: var(--gold-bright); font-weight: normal; line-height: 1; }
+.lede { font-family: var(--fontpack-prose); font-size: 1.5rem; color: var(--stage-muted); }
+.lede b { color: var(--stage-ink); font-weight: normal; }
+.pair { display: flex; align-items: center; gap: 3rem; }
+.code { font-family: var(--fontpack-mono); font-size: 5rem; letter-spacing: 0.12em; color: var(--stage-ink); border: 1px solid var(--gold); padding: 0.6rem 1.6rem; }
+.qr { width: 13rem; height: 13rem; image-rendering: pixelated; background: #fff; padding: 0.5rem; }
+.small { font-family: var(--fontpack-mono); font-size: 1rem; color: var(--stage-muted); letter-spacing: 0.06em; }
+video { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; }
+.bar { position: absolute; left: 3rem; right: 3rem; bottom: 2rem; display: flex; align-items: center; gap: 1.2rem; font-family: var(--fontpack-mono); font-size: 1.2rem; color: var(--stage-ink); text-shadow: 0 0 0.4rem #000; transition: opacity 300ms; }
+.bar.gone { opacity: 0; }
+.track { flex: 1; height: 0.4rem; background: rgba(240, 223, 200, 0.25); position: relative; }
+.fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--gold-bright); }
+.title { position: absolute; left: 3rem; top: 2rem; font-family: var(--fontpack-prose); font-size: 1.6rem; text-shadow: 0 0 0.4rem #000; transition: opacity 300ms; }
+.title.gone { opacity: 0; }
+.keylog { position: absolute; right: 1rem; top: 1rem; font-family: var(--fontpack-mono); font-size: 1rem; color: var(--gold-bright); }
+button.full { font-family: var(--fontpack-mono); font-size: 1rem; color: var(--stage-ink); background: none; border: 1px solid var(--z-line); padding: 0.5rem 1rem; cursor: pointer; }
+</style>
+</head>
+<body class="gesso-stage">
+<!-- zanni:boil -->
+<!-- zanni:gesso -->
+<!-- zanni:fontpack -->
+
+<section class="screen" id="pairing" hidden>
+  <h1 class="mark fontpack-display boil-text-squiggle">aguatv</h1>
+  <p class="lede">On your phone, open <b id="url">tv.kelliher.info/tvlogin</b> and enter</p>
+  <div class="pair">
+    <div class="code" id="code">·······</div>
+    <img class="qr" id="qr" alt="">
+  </div>
+  <p class="small" id="expires"></p>
+</section>
+
+<section class="screen" id="idle" hidden>
+  <h1 class="mark fontpack-display boil-text-squiggle">aguatv</h1>
+  <p class="lede"><b id="name"></b> is ready. Cast something to it.</p>
+  <button class="full" id="full" hidden>full screen</button>
+  <p class="small" id="note"></p>
+</section>
+
+<section id="player" hidden>
+  <video id="v" playsinline></video>
+  <div class="title" id="vtitle"></div>
+  <div class="bar" id="bar"><span id="pos">0:00</span><div class="track"><div class="fill" id="fill"></div></div><span id="dur">0:00</span></div>
+</section>
+
+<div class="keylog" id="keylog" hidden></div>
+
+<svg class="witness" width="0" height="0" aria-hidden="true">
+  <g class="boil-slack"></g><g class="boil-text"></g>
+  <g class="boil-text-fine"></g><g class="boil-text-strong"></g><g class="boil-text-erode"></g>
+  <g class="boil-ui"></g><g class="boil-ui-squiggle"></g><g class="boil-ui-fine"></g>
+  <g class="boil-ui-strong"></g><g class="boil-ui-erode"></g>
+  <g class="boil-stage"></g><g class="boil-stage-squiggle"></g><g class="boil-stage-fine"></g>
+  <g class="boil-stage-strong"></g><g class="boil-stage-erode"></g>
+  <g class="gesso"></g><g class="fontpack-prose"></g>
+</svg>
+
+<script>
+(function () {
+  'use strict';
+  var q = new URLSearchParams(location.search);
+  var kind = q.get('kind') === 'tv' ? 'tv' : 'browser';
+  var guest = q.get('guest') === '1';
+  var proposed = q.get('name') || (kind === 'tv' ? 'TV' : 'Browser');
+  var $ = function (id) { return document.getElementById(id); };
+  var v = $('v');
+  var shown = null;
+  var hideTimer = null;
+  var stateTimer = null;
+  var title = '';
+
+  function show(id) {
+    ['pairing', 'idle', 'player'].forEach(function (s) { $(s).hidden = s !== id; });
+    shown = id;
+  }
+
+  function post(path, body) {
+    return fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  }
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function clock(t) {
+    t = Math.max(0, Math.floor(t || 0));
+    var h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60;
+    return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function pair() {
+    show('pairing');
+    return post('/device/start', { kind: kind, name: proposed, session: guest }).then(function (r) {
+      if (r.status === 429) return sleep(15000).then(pair);
+      return r.json().then(function (s) {
+        $('code').textContent = s.code;
+        $('url').textContent = s.url.replace(/^https?:\/\//, '');
+        $('qr').src = '/device/qr?code=' + encodeURIComponent(s.code);
+        var until = Date.now() + s.expires * 1000;
+        function claim() {
+          var left = Math.round((until - Date.now()) / 1000);
+          if (left <= 0) return pair();
+          $('expires').textContent = 'This code works for ' + Math.ceil(left / 60) + ' more minutes.';
+          return post('/device/claim', { code: s.code, claim: s.claim }).then(function (c) {
+            if (c.status === 200) return c.json().then(linked);
+            if (c.status === 202) return sleep(2000).then(claim);
+            return sleep(2000).then(pair);
+          }, function () { return sleep(5000).then(claim); });
+        }
+        return claim();
+      });
+    }, function () { return sleep(5000).then(pair); });
+  }
+
+  function linked(d) {
+    $('name').textContent = d.name;
+    $('full').hidden = kind === 'tv' || !document.fullscreenEnabled;
+    if (shown !== 'player') show('idle');
+    listen();
+  }
+
+  function listen() {
+    fetch('/device/next', { credentials: 'same-origin' }).then(function (r) {
+      if (r.status === 401) { stop(); return pair(); }
+      if (r.status === 204) return listen();
+      if (!r.ok) return sleep(5000).then(listen);
+      return r.json().then(function (e) { handle(e); listen(); });
+    }, function () { return sleep(5000).then(listen); });
+  }
+
+  function handle(e) {
+    if (e.kind === 'cast') return play(e);
+    if (e.kind !== 'control') return;
+    if (e.action === 'stop') return stop();
+    if (shown !== 'player') return;
+    act(e.action, e.value);
+  }
+
+  function act(action, value) {
+    var d = v.duration || 0;
+    switch (action) {
+      case 'toggle': if (v.paused) v.play(); else v.pause(); break;
+      case 'skip': v.currentTime = Math.max(0, Math.min(d || Infinity, v.currentTime + value)); break;
+      case 'seekTo': v.currentTime = Math.max(0, value); break;
+      case 'seekFraction': if (d) v.currentTime = d * Math.max(0, Math.min(1, value)); break;
+    }
+    reveal();
+    report();
+  }
+
+  function play(e) {
+    title = e.title || '';
+    $('vtitle').textContent = title;
+    show('player');
+    v.src = '/stream?cast=' + encodeURIComponent(e.cast);
+    v.play().catch(function () {});
+    reveal();
+    clearInterval(stateTimer);
+    stateTimer = setInterval(report, 5000);
+  }
+
+  function stop() {
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+    clearInterval(stateTimer);
+    title = '';
+    report();
+    if (shown === 'player') show('idle');
+  }
+
+  function awake(on) {
+    if (window.receiverHost) window.receiverHost.keepAwake(on);
+  }
+
+  function report() {
+    post('/device/state', { title: title, position: v.currentTime || 0, duration: v.duration || 0, playing: !v.paused && !!title }).catch(function () {});
+  }
+
+  function reveal() {
+    $('bar').classList.remove('gone');
+    $('vtitle').classList.remove('gone');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(function () {
+      if (!v.paused) { $('bar').classList.add('gone'); $('vtitle').classList.add('gone'); }
+    }, 3000);
+  }
+
+  v.addEventListener('timeupdate', function () {
+    $('pos').textContent = clock(v.currentTime);
+    $('dur').textContent = clock(v.duration);
+    $('fill').style.width = v.duration ? (100 * v.currentTime / v.duration) + '%' : '0';
+  });
+  v.addEventListener('pause', function () { reveal(); report(); awake(false); });
+  v.addEventListener('play', function () { reveal(); report(); awake(true); });
+  v.addEventListener('ended', function () { stop(); });
+
+  document.addEventListener('keydown', function (e) {
+    if (q.get('keys') === '1') { $('keylog').hidden = false; $('keylog').textContent = 'key=' + e.key + ' code=' + e.code + ' keyCode=' + e.keyCode; }
+    if (shown !== 'player') return;
+    var step = e.shiftKey ? 30 : 10;
+    switch (e.key) {
+      case ' ': case 'Enter': case 'MediaPlayPause': act('toggle'); break;
+      case 'ArrowLeft': act('skip', -step); break;
+      case 'ArrowRight': act('skip', step); break;
+      case 'MediaRewind': act('skip', -30); break;
+      case 'MediaFastForward': act('skip', 30); break;
+      case 'ArrowUp': case 'ArrowDown': reveal(); break;
+      case 'Escape': stop(); break;
+      default:
+        if (e.keyCode === 179) { act('toggle'); break; }
+        if (/^[0-9]$/.test(e.key)) { act('seekFraction', parseInt(e.key, 10) / 10); break; }
+        return;
+    }
+    e.preventDefault();
+  });
+
+  $('full').addEventListener('click', function () { document.documentElement.requestFullscreen().catch(function () {}); });
+
+  window.aguatvReceiver = { back: function () { if (shown === 'player') { stop(); return true; } return false; } };
+
+  fetch('/device/whoami', { credentials: 'same-origin' }).then(function (r) {
+    if (r.ok) return r.json().then(linked);
+    return pair();
+  }, function () { return sleep(5000).then(pair); });
+})();
+</script>
+</body>
+</html>
