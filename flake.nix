@@ -178,6 +178,7 @@
             export AGUATV_APK=${apk}/aguatv-unsigned.apk
             export AGUATV_BUILD_TOOLS=${sdkRoot}/build-tools/${buildTools}
             export AGUATV_REMOTE=${pkgs.lib.getExe remote}
+            export AGUATV_PLAYER_APK=${player}/aguatv-player-unsigned.apk
             ${builtins.readFile ./bin/aguatv}
           '';
         };

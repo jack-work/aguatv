@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -166,5 +167,65 @@ func TestDetailsAndBothSettings(t *testing.T) {
 	}
 	if r.sent[2].shell[len(r.sent[2].shell)-1] != "android.intent.category.LEANBACK_SETTINGS" {
 		t.Fatalf("gS should open the TV's settings, got %v", r.sent[2].shell)
+	}
+}
+
+func TestHttpsLinksPlayAsTheyAre(t *testing.T) {
+	got, err := resolve("https://example.com/films/a.mp4?sig=1", "")
+	if err != nil || got != "https://example.com/films/a.mp4?sig=1" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestOtherReferencesNeedAPresignCommand(t *testing.T) {
+	if _, err := resolve("films/a.mp4", ""); err == nil || !strings.Contains(err.Error(), "AGUATV_PRESIGN") {
+		t.Fatalf("expected a pointer to AGUATV_PRESIGN, got %v", err)
+	}
+	got, err := resolve("films/it's;a.mp4", "printf 'https://example.com/signed/%s\\n'")
+	if err != nil || got != "https://example.com/signed/films/it's;a.mp4" {
+		t.Fatalf("the reference should arrive as one last argument, got %q, %v", got, err)
+	}
+	if _, err := resolve("films/a.mp4", "echo http://example.com/a.mp4"); err == nil {
+		t.Fatal("a non-https answer should be refused")
+	}
+	if _, err := resolve("films/a.mp4", "false"); err == nil {
+		t.Fatal("a failing presign command should be an error")
+	}
+}
+
+func TestTitleAndTypeIgnoreTheQuery(t *testing.T) {
+	ref := "https://example.com/films/talk.mkv?X-Amz-Signature=abc"
+	if videoTitle(ref) != "talk.mkv" || videoType(ref) != "video/x-matroska" {
+		t.Fatalf("got %q %q", videoTitle(ref), videoType(ref))
+	}
+	if videoTitle("s3://bucket/films/talk.mp4") != "talk.mp4" || videoType("films/x") != "video/*" {
+		t.Fatal("bare and s3 references")
+	}
+}
+
+func TestPlayCommandQuotesTheLink(t *testing.T) {
+	cmd := playCommand("https://example.com/a.mp4?X-Amz-Signature=abc&X-Amz-Date=1", "it's.mp4", "video/mp4")
+	if !strings.Contains(cmd, "-d 'https://example.com/a.mp4?X-Amz-Signature=abc&X-Amz-Date=1'") {
+		t.Fatalf("link not quoted: %s", cmd)
+	}
+	if !strings.Contains(cmd, `--es title 'it'\''s.mp4'`) {
+		t.Fatalf("title not quoted: %s", cmd)
+	}
+}
+
+func TestPlayResolvesOffTheEventLoop(t *testing.T) {
+	m, r := fresh()
+	m = keys(t, m, runes(":play https://example.com/a.mp4")...)
+	tm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || len(r.sent) != 0 {
+		t.Fatalf("expected a command and nothing sent yet, sent %+v", r.sent)
+	}
+	msg, ok := cmd().(presignedMsg)
+	if !ok {
+		t.Fatalf("got %T", cmd())
+	}
+	tm.Update(msg)
+	if len(r.sent) != 1 || !strings.Contains(r.sent[0].shell[0], "-d 'https://example.com/a.mp4'") {
+		t.Fatalf("got %+v", r.sent)
 	}
 }

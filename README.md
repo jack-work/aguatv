@@ -50,6 +50,7 @@ takes over the HOME button. Later installs must use the same key, so keep that f
 | `aguatv status` | whether the HOME guard is bound and what is in front |
 | `aguatv apk [path]` | write a signed APK without installing |
 | `aguatv remote [-c host:port]` | the same as `aguatv-remote` |
+| `aguatv play <ref>` | play a video on the TV (see below) |
 
 With several devices connected, set `ANDROID_SERIAL`.
 
@@ -92,6 +93,21 @@ picks a device when several are connected.
 Keys go through a scrcpy server started on the TV for the session, so a press
 lands at once rather than starting a Java process per key as `adb shell input`
 does. `-slow` uses `adb shell input` instead.
+
+## Videos
+
+`aguatv play https://example.com/talk.mp4` installs a small player app on the TV
+if needed and plays the URL; `:play <url>` does the same from the remote. The
+player is a separate APK, so aguatv's home screen still has no internet access.
+On the TV, OK pauses, ◀ ▶ skip 10 seconds and Back stops.
+
+Anything that is not an `https://` URL is handed to the command in
+`AGUATV_PRESIGN`, which must print one. For private files in S3:
+
+```sh
+export AGUATV_PRESIGN='aws s3 presign --expires-in 14400'
+aguatv play s3://my-bucket/films/talk.mp4
+```
 
 ## Develop
 

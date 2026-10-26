@@ -43,4 +43,5 @@ flake.nix      web, apk, cli, remote, aguatv packages; lib.mkTvs
 | [build.md](build.md) | the build fails, the SDK changes, or signing goes wrong |
 | [deploy.md](deploy.md) | declaring a TV's packages and settings, or changing aguatv-deploy |
 | [remote.md](remote.md) | changing the terminal remote, its keys, or how it reaches the TV |
+| [player.md](player.md) | playing videos on the TV, the player APK, or AGUATV_PRESIGN |
 | [memory.md](memory.md) | the TV feels slow, or before adding an effect to the page |

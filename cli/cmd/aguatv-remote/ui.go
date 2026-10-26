@@ -73,6 +73,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sendErrMsg:
 		m.status = msg.err.Error()
 		return m, nil
+	case presignedMsg:
+		m.status = ""
+		return m.fire(msg.a, 1)
 	case unlightMsg:
 		if msg.seq == m.litSeq {
 			m.lit = ""
@@ -286,6 +289,10 @@ func (m model) run(line string) (tea.Model, tea.Cmd) {
 		m.help = true
 		return m, nil
 	}
+	if ref, ok := strings.CutPrefix(line, "play "); ok {
+		m.status = "opening " + ref
+		return m, play(ref)
+	}
 	if strings.HasPrefix(line, "type ") {
 		return m.fire(act{text: strings.TrimPrefix(line, "type "), label: "type"}, 1)
 	}
@@ -381,7 +388,8 @@ p         play/pause   [ ]         rewind / ff
 i a       type text    esc         leave typing
 gs        aguatv set.  gS          TV settings
 :power    :wake        :sleep      :details
-:type txt send text    q :q        quit`
+:type txt send text    q :q        quit
+:play url   play a video on the TV`
 
 func (m model) View() string {
 	view := m.remote()

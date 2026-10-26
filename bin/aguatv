@@ -12,6 +12,7 @@ usage: aguatv install     build, sign and install, then take over HOME
        aguatv apk [path]  write a signed APK without installing
        aguatv status      show what HOME resolves to and whether the guard is bound
        aguatv remote      a vim-keyed remote in the terminal (aguatv remote -h)
+       aguatv play <ref>  play an https URL on the TV; other references go through AGUATV_PRESIGN
 
 The TV is whatever adb is connected to; set ANDROID_SERIAL when there are several.
 EOF
@@ -31,7 +32,7 @@ need_device() {
 }
 
 sign() {
-  local out=$1 work
+  local out=$1 src=${2:-$AGUATV_APK} work
   mkdir -p "$STATE"
   if [[ ! -f $KEYSTORE ]]; then
     keytool -genkeypair -keystore "$KEYSTORE" -alias home -keyalg RSA -keysize 2048 \
@@ -39,7 +40,7 @@ sign() {
     echo "created signing key $KEYSTORE; later installs must use the same key"
   fi
   work=$(mktemp -d)
-  cp "$AGUATV_APK" "$work/app.apk"
+  cp "$src" "$work/app.apk"
   chmod u+w "$work/app.apk"
   "$AGUATV_BUILD_TOOLS/apksigner" sign --ks "$KEYSTORE" --ks-pass "pass:$KEYPASS" \
     --key-pass "pass:$KEYPASS" --out "$out" "$work/app.apk"
@@ -185,11 +186,70 @@ cmd_status() {
   echo "front: $(front)"
 }
 
+player_current() {
+  [[ -f $STATE/player.installed && $(cat "$STATE/player.installed") == "$AGUATV_PLAYER_APK" ]] &&
+    sh_ pm path tv.aguatv.player | grep -q '^package:'
+}
+
+install_player() {
+  local apk out
+  apk=$(mktemp --suffix=.apk)
+  sign "$apk" "$AGUATV_PLAYER_APK"
+  out=$(adb install -r "$apk" 2>&1 | grep -m1 -E 'Success|Failure|failed' || true)
+  rm -f "$apk"
+  [[ $out == *Success* ]] || die "installing the player failed: ${out:-no output}"
+  printf '%s\n' "$AGUATV_PLAYER_APK" >"$STATE/player.installed"
+  echo "installed tv.aguatv.player"
+}
+
+squote() {
+  local q="'\\''"
+  printf "'%s'" "${1//\'/$q}"
+}
+
+video_type() {
+  case ${1,,} in
+    *.mp4 | *.m4v) echo video/mp4 ;;
+    *.mov) echo video/quicktime ;;
+    *.mkv) echo video/x-matroska ;;
+    *.webm) echo video/webm ;;
+    *.ts) echo video/mp2t ;;
+    *) echo 'video/*' ;;
+  esac
+}
+
+resolve_link() {
+  local ref=$1 link
+  if [[ $ref == https://* ]]; then
+    printf '%s' "$ref"
+    return
+  fi
+  [[ -n ${AGUATV_PRESIGN:-} ]] || die "$ref is not an https URL, and AGUATV_PRESIGN is not set to turn it into one"
+  link=$(sh -c "$AGUATV_PRESIGN \"\$1\"" sh "$ref") || die "AGUATV_PRESIGN failed for $ref"
+  [[ $link == https://* && $link != *[[:space:]]* ]] || die "AGUATV_PRESIGN did not print one https URL for $ref"
+  printf '%s' "$link"
+}
+
+cmd_play() {
+  [[ -n ${1:-} ]] || die "play what? aguatv play <https URL, or a reference AGUATV_PRESIGN understands>"
+  local ref=$1 link title out path
+  link=$(resolve_link "$ref")
+  need_device
+  player_current || install_player
+  path=${ref%%\?*}
+  title=${path##*/}
+  sh_ input keyevent KEYCODE_WAKEUP >/dev/null
+  out=$(sh_ "am start -a android.intent.action.VIEW -n tv.aguatv.player/.Player -t $(squote "$(video_type "$path")") -d $(squote "$link") --es title $(squote "$title")" 2>&1)
+  [[ $out != *Error* ]] || die "the TV refused to start the player: $out"
+  echo "playing $title"
+}
+
 case ${1:-} in
   install) cmd_install ;;
   undo) cmd_undo ;;
   status) cmd_status ;;
   remote) shift; exec "$AGUATV_REMOTE" "$@" ;;
+  play) shift; cmd_play "$@" ;;
   apk) sign "${2:-aguatv.apk}"; echo "wrote ${2:-aguatv.apk}" ;;
   *) usage ;;
 esac
