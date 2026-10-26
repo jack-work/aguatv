@@ -175,7 +175,6 @@ public final class Home extends Activity {
         ui.post(() -> {
             Shelf.App a = Shelf.apps(this).get(pkg);
             if (a == null) return;
-            if (Guard.AMAZON.equals(pkg)) Guard.pause();
             launch(new Intent(a.intent));
         });
     }
@@ -198,10 +197,6 @@ public final class Home extends Activity {
             boolean found = tvSettings.resolveActivity(getPackageManager()) != null;
             launch(found ? tvSettings : new Intent(Settings.ACTION_SETTINGS));
         });
-    }
-
-    void openAmazon() {
-        ui.post(() -> Guard.amazon(this));
     }
 
     private void launch(Intent i) {

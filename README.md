@@ -59,8 +59,8 @@ With several devices connected, set `ANDROID_SERIAL`.
 | Back | jump to the first tile; on an input, return home |
 | Hold HOME | Fire OS's quick menu, unchanged |
 
-The System row opens Settings, turns the boil animation on or off, shows hidden
-apps, and opens Amazon's home screen on purpose.
+The System row opens Settings, turns the boil animation on or off, and shows
+hidden apps. To get Amazon's home screen back, run `aguatv undo`.
 
 ## The remote
 

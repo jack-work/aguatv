@@ -32,7 +32,9 @@ So aguatv does not intercept HOME. It reacts to Amazon's home window appearing.
    also relaunches on `ACTION_SCREEN_ON` when Amazon's home was last in front.
 
 Amazon's other launcher screens, such as its settings grid, are left alone.
-"Amazon's home" in the System row pauses the guard until the user leaves it.
+There is no way to visit Amazon's home from aguatv: an earlier "Amazon's home"
+action paused the guard until another app opened, so HOME kept landing on
+Amazon's screen and its ads. `aguatv undo` is the way back.
 
 ## Install steps that matter
 

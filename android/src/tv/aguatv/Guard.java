@@ -4,7 +4,6 @@ import android.accessibilityservice.AccessibilityService;
 import android.app.ActivityOptions;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
-import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -26,7 +25,6 @@ public final class Guard extends AccessibilityService {
     private static final long REPEAT_MS = 1000;
     private static final long LAUNCH_FALLBACK_MS = 150;
 
-    private static volatile boolean paused;
     private static Guard running;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -38,13 +36,9 @@ public final class Guard extends AccessibilityService {
     private final BroadcastReceiver screenOn = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
-            if (!paused && onAmazonHome) launchWhenCovered();
+            if (onAmazonHome) launchWhenCovered();
         }
     };
-
-    static void pause() {
-        paused = true;
-    }
 
     static void home(Context c) {
         AlarmManager alarms = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
@@ -66,17 +60,6 @@ public final class Guard extends AccessibilityService {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
         return PendingIntent.getActivity(c, 0, i, PendingIntent.FLAG_UPDATE_CURRENT,
                 ActivityOptions.makeCustomAnimation(c, 0, 0).toBundle());
-    }
-
-    static void amazon(Context c) {
-        pause();
-        Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                .setPackage(AMAZON).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            c.startActivity(i);
-        } catch (ActivityNotFoundException e) {
-            paused = false;
-        }
     }
 
     @Override
@@ -118,12 +101,11 @@ public final class Guard extends AccessibilityService {
         if (!AMAZON.contentEquals(pkg)) {
             if ("com.android.systemui".contentEquals(pkg) || "android".contentEquals(pkg)) return;
             onAmazonHome = false;
-            paused = false;
             if (!getPackageName().contentEquals(pkg)) arrived(this);
             return;
         }
         onAmazonHome = cls != null && AMAZON_HOME.contentEquals(cls);
-        if (paused || !onAmazonHome) return;
+        if (!onAmazonHome) return;
         long now = SystemClock.uptimeMillis();
         if (now - lastLaunch < REPEAT_MS) return;
         lastLaunch = now;

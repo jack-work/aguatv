@@ -13,7 +13,6 @@ The page talks to Java through one object, `window.host`, registered with
 | `openApp(id)` | starts the app's launcher activity |
 | `openInput(id)` | shows the input (see below) |
 | `openSettings()` | Fire OS settings |
-| `openAmazon()` | Amazon's home, with the guard paused |
 | `ready()` | the page has painted; lets the guard remove its overlay |
 
 Bridge methods run on a binder thread. Anything that touches the UI is posted to

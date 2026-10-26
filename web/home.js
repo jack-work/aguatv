@@ -19,7 +19,6 @@
     openApp: function (id) { console.log('openApp', id); },
     openInput: function (id) { console.log('openInput', id); },
     openSettings: function () { console.log('openSettings'); },
-    openAmazon: function () { console.log('openAmazon'); },
     ready: function () {}
   };
   var host = window.host || preview;
@@ -93,8 +92,7 @@
       {
         kind: 'action', id: 'hidden', label: state.showHidden ? 'Hide hidden' : 'Show hidden',
         open: function () { state.showHidden = !state.showHidden; build(); }
-      },
-      { kind: 'action', id: 'amazon', label: "Amazon's home", open: function () { host.openAmazon(); } }
+      }
     ];
   }
 

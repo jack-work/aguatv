@@ -35,11 +35,6 @@ final class Bridge {
     }
 
     @JavascriptInterface
-    public void openAmazon() {
-        home.openAmazon();
-    }
-
-    @JavascriptInterface
     public void ready() {
         home.pageReady();
     }
