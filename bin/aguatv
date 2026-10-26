@@ -12,6 +12,7 @@ usage: aguatv install     build, sign and install, then take over HOME
        aguatv apk [path]  write a signed APK without installing
        aguatv status      show what HOME resolves to and whether the guard is bound
        aguatv remote      a vim-keyed remote in the terminal (aguatv remote -h)
+       aguatv player      install or update the video player app
        aguatv play <ref>  play an https URL on the TV; other references go through AGUATV_PRESIGN
 
 The TV is whatever adb is connected to; set ANDROID_SERIAL when there are several.
@@ -220,11 +221,11 @@ video_type() {
 
 resolve_link() {
   local ref=$1 link
-  if [[ $ref == https://* ]]; then
+  if [[ -z ${AGUATV_PRESIGN:-} ]]; then
+    [[ $ref == https://* ]] || die "$ref is not an https URL, and AGUATV_PRESIGN is not set to turn it into one"
     printf '%s' "$ref"
     return
   fi
-  [[ -n ${AGUATV_PRESIGN:-} ]] || die "$ref is not an https URL, and AGUATV_PRESIGN is not set to turn it into one"
   link=$(sh -c "$AGUATV_PRESIGN \"\$1\"" sh "$ref") || die "AGUATV_PRESIGN failed for $ref"
   [[ $link == https://* && $link != *[[:space:]]* ]] || die "AGUATV_PRESIGN did not print one https URL for $ref"
   printf '%s' "$link"
@@ -246,6 +247,7 @@ cmd_play() {
 
 case ${1:-} in
   install) cmd_install ;;
+  player) need_device; install_player ;;
   undo) cmd_undo ;;
   status) cmd_status ;;
   remote) shift; exec "$AGUATV_REMOTE" "$@" ;;

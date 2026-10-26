@@ -58,10 +58,10 @@ func resolve(ref, presign string) (string, error) {
 	if ref == "" {
 		return "", errors.New("play what? :play <https URL, or a reference AGUATV_PRESIGN understands>")
 	}
-	if strings.HasPrefix(ref, "https://") {
-		return ref, nil
-	}
 	if presign == "" {
+		if strings.HasPrefix(ref, "https://") {
+			return ref, nil
+		}
 		return "", errors.New("not an https URL, and AGUATV_PRESIGN is not set to turn it into one")
 	}
 	out, err := exec.Command("sh", "-c", presign+` "$1"`, "sh", ref).Output()

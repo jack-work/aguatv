@@ -64,6 +64,10 @@ in
       type = types.bool;
       default = true;
     };
+    player.enable = mkOption {
+      type = types.bool;
+      default = false;
+    };
     plan = mkOption {
       type = types.attrs;
       readOnly = true;
@@ -83,6 +87,7 @@ in
         serial
         packages
         home
+        player
         ;
       settings = lib.mapAttrs (_: lib.mapAttrs (_: render)) config.settings;
     };

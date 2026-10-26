@@ -194,15 +194,18 @@ func apply(d adb.Device, a Action) (Action, error) {
 		}
 		_, err := d.Shell("settings", "put", a.NS, shellQuote(a.Key), shellQuote(a.Value))
 		return a, err
-	case InstallHome, UndoHome:
+	case RemovePlayer:
+		out, err := d.Shell("pm", "uninstall", playerPkg)
+		if err == nil && !strings.Contains(out, "Success") {
+			err = errors.New(out)
+		}
+		return a, err
+	case InstallHome, UndoHome, InstallPlayer:
 		cli := os.Getenv("AGUATV_CLI")
 		if cli == "" {
 			return a, errors.New("AGUATV_CLI is not set; run deploy through the flake")
 		}
-		verb := "install"
-		if a.Kind == UndoHome {
-			verb = "undo"
-		}
+		verb := map[Kind]string{InstallHome: "install", UndoHome: "undo", InstallPlayer: "player"}[a.Kind]
 		cmd := exec.Command(cli, verb)
 		cmd.Env = append(os.Environ(), "ANDROID_SERIAL="+d.Serial)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -294,8 +297,8 @@ func run(path, adbBin, serial string, yes, dry, noRemote bool) error {
 	if err != nil {
 		return err
 	}
-	apk := os.Getenv("AGUATV_APK")
-	actions, skipped := Plan(c, dev, prev, apk)
+	apk, playerAPK := os.Getenv("AGUATV_APK"), os.Getenv("AGUATV_PLAYER_APK")
+	actions, skipped := Plan(c, dev, prev, apk, playerAPK)
 
 	fmt.Printf("%s (%s, %s)\n", c.Name, d.Label(), d.Serial)
 	if len(skipped) > 0 {
@@ -307,7 +310,7 @@ func run(path, adbBin, serial string, yes, dry, noRemote bool) error {
 	if len(actions) == 0 {
 		fmt.Println("  nothing to do")
 		if !dry {
-			if err := saveMemory(c.Name, Remember(prev, c, dev, nil, nil, apk)); err != nil {
+			if err := saveMemory(c.Name, Remember(prev, c, dev, nil, nil, apk, playerAPK)); err != nil {
 				return err
 			}
 		}
@@ -339,7 +342,7 @@ func run(path, adbBin, serial string, yes, dry, noRemote bool) error {
 		}
 		done = append(done, got)
 	}
-	if err := saveMemory(c.Name, Remember(prev, c, dev, done, failedPkgs, apk)); err != nil {
+	if err := saveMemory(c.Name, Remember(prev, c, dev, done, failedPkgs, apk, playerAPK)); err != nil {
 		return err
 	}
 	fmt.Printf("  applied %d, failed %d\n", len(done), failed)

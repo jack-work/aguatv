@@ -18,6 +18,10 @@ type Home struct {
 	Enable bool `json:"enable"`
 }
 
+type Player struct {
+	Enable bool `json:"enable"`
+}
+
 type Config struct {
 	Name     string                       `json:"name"`
 	Address  string                       `json:"address"`
@@ -25,6 +29,7 @@ type Config struct {
 	Packages map[string]Package           `json:"packages"`
 	Settings map[string]map[string]string `json:"settings"`
 	Home     Home                         `json:"home"`
+	Player   Player                       `json:"player"`
 }
 
 type Device struct {
@@ -37,12 +42,15 @@ type Device struct {
 	HomeAPK   string
 }
 
+const playerPkg = "tv.aguatv.player"
+
 type Memory struct {
 	Disabled     []string          `json:"disabled"`
 	Absent       []string          `json:"absent"`
 	Starved      []string          `json:"starved"`
 	OrigSettings map[string]string `json:"origSettings"`
 	APK          string            `json:"apk"`
+	PlayerAPK    string            `json:"playerApk"`
 }
 
 type Kind int
@@ -58,19 +66,23 @@ const (
 	Restore
 	InstallHome
 	UndoHome
+	InstallPlayer
+	RemovePlayer
 )
 
 var kindNames = map[Kind]string{
-	Disable:     "disable",
-	Starve:      "starve",
-	Enable:      "enable",
-	Reinstall:   "reinstall",
-	Unstarve:    "unstarve",
-	Uninstall:   "uninstall",
-	Put:         "set",
-	Restore:     "restore",
-	InstallHome: "install home",
-	UndoHome:    "undo home",
+	Disable:       "disable",
+	Starve:        "starve",
+	Enable:        "enable",
+	Reinstall:     "reinstall",
+	Unstarve:      "unstarve",
+	Uninstall:     "uninstall",
+	Put:           "set",
+	Restore:       "restore",
+	InstallHome:   "install home",
+	UndoHome:      "undo home",
+	InstallPlayer: "install player",
+	RemovePlayer:  "remove player",
 }
 
 type Action struct {
@@ -87,7 +99,7 @@ func (a Action) String() string {
 	switch a.Kind {
 	case Put, Restore:
 		return fmt.Sprintf("%-10s %s %s = %s (was %s)", kindNames[a.Kind], a.NS, a.Key, a.Value, a.Was)
-	case InstallHome, UndoHome:
+	case InstallHome, UndoHome, InstallPlayer, RemovePlayer:
 		return fmt.Sprintf("%-10s %s", kindNames[a.Kind], a.Why)
 	}
 	s := fmt.Sprintf("%-10s %s", kindNames[a.Kind], a.Pkg)
@@ -127,7 +139,7 @@ func why(p Package) string {
 	return strings.Join(parts, " ")
 }
 
-func Plan(c Config, d Device, prev Memory, apk string) (actions []Action, skipped []string) {
+func Plan(c Config, d Device, prev Memory, apk, playerAPK string) (actions []Action, skipped []string) {
 	wantDisabled, wantAbsent, wantStarved := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, name := range sortedKeys(c.Packages) {
 		p := c.Packages[name]
@@ -211,10 +223,17 @@ func Plan(c Config, d Device, prev Memory, apk string) (actions []Action, skippe
 	case !c.Home.Enable && d.HomeOK:
 		actions = append(actions, Action{Kind: UndoHome, Why: "HOME goes back to Amazon's launcher"})
 	}
+
+	switch {
+	case c.Player.Enable && (!d.Installed[playerPkg] || prev.PlayerAPK != playerAPK):
+		actions = append(actions, Action{Kind: InstallPlayer, Why: "the video player for aguatv play"})
+	case !c.Player.Enable && prev.PlayerAPK != "" && d.Installed[playerPkg]:
+		actions = append(actions, Action{Kind: RemovePlayer, Why: "deploy installed it and the config no longer asks for it"})
+	}
 	return actions, skipped
 }
 
-func Remember(prev Memory, c Config, d Device, done []Action, failed []string, apk string) Memory {
+func Remember(prev Memory, c Config, d Device, done []Action, failed []string, apk, playerAPK string) Memory {
 	disabled, absent, starved := set(prev.Disabled), set(prev.Absent), set(prev.Starved)
 	orig := map[string]string{}
 	for k, v := range prev.OrigSettings {
@@ -245,6 +264,10 @@ func Remember(prev Memory, c Config, d Device, done []Action, failed []string, a
 			prev.APK = apk
 		case UndoHome:
 			prev.APK = ""
+		case InstallPlayer:
+			prev.PlayerAPK = playerAPK
+		case RemovePlayer:
+			prev.PlayerAPK = ""
 		}
 	}
 	failedPkg := set(failed)
@@ -267,6 +290,7 @@ func Remember(prev Memory, c Config, d Device, done []Action, failed []string, a
 		Starved:      sortedKeys(starved),
 		OrigSettings: orig,
 		APK:          prev.APK,
+		PlayerAPK:    prev.PlayerAPK,
 	}
 }
 

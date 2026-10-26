@@ -33,6 +33,7 @@ TV match.
 | `packages.<pkg>.group`, `.note` | shown in the plan |
 | `settings.<ns>.<key>` | `adb shell settings put`; bools become `1`/`0` |
 | `home.enable` | install aguatv and take over HOME; `false` hands HOME back |
+| `player.enable` | install and keep current the video player; `false` removes it only if deploy installed it, so a player that `aguatv play` installed on its own is left alone |
 | `dumbtv.enable`, `dumbtv.alexa` | use the dumbtv layer; keep Alexa |
 
 ## What deploy does

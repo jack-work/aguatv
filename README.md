@@ -101,8 +101,10 @@ if needed and plays the URL; `:play <url>` does the same from the remote. The
 player is a separate APK, so aguatv's home screen still has no internet access.
 On the TV, OK pauses, ◀ ▶ skip 10 seconds and Back stops.
 
-Anything that is not an `https://` URL is handed to the command in
-`AGUATV_PRESIGN`, which must print one. For private files in S3:
+With `AGUATV_PRESIGN` set, every reference, URLs included, is handed to that
+command, which must print one `https://` URL; it can map links of its own and
+print others back unchanged. Without it, only `https://` URLs play. For private
+files in S3:
 
 ```sh
 export AGUATV_PRESIGN='aws s3 presign --expires-in 14400'

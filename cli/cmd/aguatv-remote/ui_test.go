@@ -188,6 +188,10 @@ func TestOtherReferencesNeedAPresignCommand(t *testing.T) {
 	if _, err := resolve("films/a.mp4", "echo http://example.com/a.mp4"); err == nil {
 		t.Fatal("a non-https answer should be refused")
 	}
+	got, err = resolve("https://example.com/page/a.mp4", "printf 'https://example.com/signed\\n'")
+	if err != nil || got != "https://example.com/signed" {
+		t.Fatalf("with AGUATV_PRESIGN set, URLs go through it too: %q %v", got, err)
+	}
 	if _, err := resolve("films/a.mp4", "false"); err == nil {
 		t.Fatal("a failing presign command should be an error")
 	}

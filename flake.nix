@@ -50,6 +50,7 @@
               text = ''
                 export AGUATV_CLI=${nixpkgs.lib.getExe own.aguatv}
                 export AGUATV_APK=${own.apk}
+                export AGUATV_PLAYER_APK=${own.player}/aguatv-player-unsigned.apk
                 export AGUATV_REMOTE_PKG=${own.remote}
                 exec ${own.cli}/bin/aguatv-deploy "$@" ${planFile name}
               '';

@@ -12,10 +12,12 @@ nix/player.nix                            the unsigned build, same recipe as agu
 
 `aguatv play <ref>` and `:play <ref>` in the remote take one reference.
 
-- An `https://` URL is played as it is.
-- Anything else goes to the command in `AGUATV_PRESIGN`, with the reference
-  appended as its last argument. It must print one `https://` URL. Without
-  `AGUATV_PRESIGN` set, both refuse and say so.
+- With `AGUATV_PRESIGN` set, every reference goes to that command, appended as
+  its last argument, and it must print one `https://` URL. URLs go through it
+  too, so it can turn a link to a login-protected page into a signed one; it
+  should print a URL it does not recognise back unchanged.
+- Without `AGUATV_PRESIGN`, an `https://` URL is played as it is, and anything
+  else is refused with a message naming the variable.
 
 The TV then gets `am start -a VIEW -n tv.aguatv.player/.Player -t <type> -d <url>`.
 The type comes from the extension of the reference, ignoring any query.
