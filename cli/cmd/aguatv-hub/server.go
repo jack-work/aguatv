@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -74,7 +75,8 @@ func NewHub(store *Store, files *url.URL, adb map[string]*link, site fs.FS, secu
 	m.HandleFunc("GET /{$}", h.as(h.page("index.html")))
 	static := http.FileServerFS(site)
 	m.HandleFunc("GET /", h.as(func(w http.ResponseWriter, r *http.Request, _ Caller) {
-		if strings.HasSuffix(r.URL.Path, ".html") || strings.HasSuffix(r.URL.Path, ".csp") {
+		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if fi, err := fs.Stat(site, name); err != nil || fi.IsDir() || strings.HasSuffix(name, ".html") || strings.HasSuffix(name, ".csp") {
 			http.NotFound(w, r)
 			return
 		}

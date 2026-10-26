@@ -52,6 +52,12 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
+	if len(targets) > 0 && adbGroup == "" {
+		log.Fatal("-adb needs -adb-group: every login on the site could otherwise drive the TV")
+	}
+	if len(targets) > 0 && jar == "" {
+		log.Fatal("-adb needs -jar, the scrcpy-server jar")
+	}
 	if cspDir == "" {
 		cspDir = site
 	}

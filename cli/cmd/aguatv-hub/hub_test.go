@@ -27,7 +27,11 @@ func testHub(t *testing.T, adb map[string]*link) *th {
 	if err != nil {
 		t.Fatal(err)
 	}
-	site := (fstest.MapFS{"index.html": {Data: []byte("<!doctype html>home")}, "app.js": {Data: []byte("1")}})
+	site := (fstest.MapFS{
+		"index.html":     {Data: []byte("<!doctype html>home")},
+		"app.js":         {Data: []byte("1")},
+		"sub/index.html": {Data: []byte("<!doctype html>no policy")},
+	})
 	h := NewHub(store, &url.URL{Scheme: "https", Host: "files.example.com"}, adb, site, true)
 	h.wait = 50 * time.Millisecond
 	return &th{t: t, h: h, store: store, dir: dir, jar: map[string]*http.Cookie{}}
@@ -337,5 +341,17 @@ func TestLongPollTimesOutEmpty(t *testing.T) {
 	x.register("alice", "den", false)
 	if e := x.next("alice", "alice/den"); e != nil {
 		t.Fatalf("got %v", e)
+	}
+}
+
+func TestNoPageIsServedWithoutItsPolicy(t *testing.T) {
+	x := testHub(t, nil)
+	for _, p := range []string{"/index.html", "/index.html.csp", "/sub/", "/sub", "/sub/index.html", "/missing.js"} {
+		if w := x.as("alice", "", http.MethodGet, p, ""); w.Code != 404 {
+			t.Errorf("%s: %d %s", p, w.Code, w.Body)
+		}
+	}
+	if w := x.as("alice", "", http.MethodGet, "/app.js", ""); w.Code != 200 {
+		t.Fatalf("an asset: %d", w.Code)
 	}
 }
