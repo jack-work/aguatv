@@ -95,6 +95,8 @@ func main() {
 			case a := <-queue:
 				var err error
 				switch {
+				case len(a.shell) > 0:
+					err = t.shell(a.shell...)
 				case a.text != "":
 					err = t.text(a.text)
 				case a.hold > 0:

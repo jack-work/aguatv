@@ -92,7 +92,7 @@ func TestGPrefix(t *testing.T) {
 	m, r := fresh()
 	keys(t, m, runes("ggxgsgh")...)
 	got := r.sent
-	if len(got) != 3 || got[0].code != keyHome || got[1].code != keySettings || got[2].code != keyHome || got[2].hold == 0 {
+	if len(got) != 3 || got[0].code != keyHome || !reflect.DeepEqual(got[1].shell, aguatvSettings.shell) || got[2].code != keyHome || got[2].hold == 0 {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -152,5 +152,19 @@ func TestPressLightsAndUnlights(t *testing.T) {
 	tm, _ = m.Update(unlightMsg{m.litSeq})
 	if tm.(model).lit != "" {
 		t.Fatal("did not unlight")
+	}
+}
+
+func TestDetailsAndBothSettings(t *testing.T) {
+	m, r := fresh()
+	keys(t, m, runes("KgsgS")...)
+	if len(r.sent) != 3 || r.sent[0].code != keyMenu {
+		t.Fatalf("got %+v", r.sent)
+	}
+	if !reflect.DeepEqual(r.sent[1].shell[len(r.sent[1].shell)-1], "settings") {
+		t.Fatalf("gs should open aguatv's settings, got %v", r.sent[1].shell)
+	}
+	if r.sent[2].shell[len(r.sent[2].shell)-1] != "android.intent.category.LEANBACK_SETTINGS" {
+		t.Fatalf("gS should open the TV's settings, got %v", r.sent[2].shell)
 	}
 }

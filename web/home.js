@@ -1,6 +1,7 @@
 (function () {
   'use strict';
 
+  var now = Date.now();
   var preview = {
     apps: function () {
       return JSON.stringify([
@@ -16,8 +17,16 @@
         { id: 'hdmi3', label: 'HDMI 3', hdmi: true, connected: false }
       ]);
     },
+    details: function (kind, id) {
+      if (kind === 'input') {
+        return JSON.stringify({ kind: 'input', id: id, label: id.toUpperCase(), type: 'HDMI', state: 'connected', service: 'org.example.tis' });
+      }
+      return JSON.stringify({ kind: 'app', id: id, label: id.split('.').pop(), version: '1.2.3', versionCode: 123,
+        installed: now - 864e5 * 40, updated: now - 864e5 * 3, system: false, targetSdk: 28, tv: true });
+    },
     openApp: function (id) { console.log('openApp', id); },
     openInput: function (id) { console.log('openInput', id); },
+    openAppInfo: function (id) { console.log('openAppInfo', id); },
     openSettings: function () { console.log('openSettings'); },
     ready: function () {}
   };
@@ -36,17 +45,25 @@
     }
   };
 
+  var prefs = {
+    still: store.get('still', false),
+    scanlines: store.get('scanlines', true),
+    clock24: store.get('clock24', false),
+    showHidden: store.get('showHidden', false)
+  };
+
   var state = {
     rows: [],
     row: 0,
     col: 0,
     hidden: store.get('hidden', []),
-    showHidden: false,
-    still: store.get('still', false)
+    panel: null
   };
 
+  var stage = document.querySelector('.stage');
   var shelf = document.getElementById('shelf');
   var hint = document.getElementById('hint');
+  var drawer = document.getElementById('drawer');
 
   function parse(s) {
     try { return JSON.parse(s) || []; } catch (e) { return []; }
@@ -74,7 +91,7 @@
     var apps = parse(host.apps());
     var tv = apps.filter(function (a) { return a.leanback; });
     if (!tv.length) tv = apps;
-    return tv.filter(function (a) { return state.showHidden || !isHidden(a.id); }).map(function (a) {
+    return tv.filter(function (a) { return prefs.showHidden || !isHidden(a.id); }).map(function (a) {
       return {
         kind: 'app', id: a.id, label: a.label, art: onDevice ? '/art/' + a.id : null,
         open: function () { host.openApp(a.id); }
@@ -84,20 +101,23 @@
 
   function actionTiles() {
     return [
-      { kind: 'action', id: 'settings', label: 'Settings', open: function () { host.openSettings(); } },
       {
-        kind: 'action', id: 'boil', label: state.still ? 'Boil: off' : 'Boil: on',
-        open: function () { state.still = !state.still; store.set('still', state.still); applyStill(); build(); }
+        kind: 'action', id: 'settings', label: 'aguatv',
+        about: 'How this home screen looks and behaves.',
+        open: function () { openSettings(); }
       },
       {
-        kind: 'action', id: 'hidden', label: state.showHidden ? 'Hide hidden' : 'Show hidden',
-        open: function () { state.showHidden = !state.showHidden; build(); }
+        kind: 'action', id: 'tv-settings', label: 'TV settings',
+        about: "The television's own settings: picture, sound, network, inputs.",
+        open: function () { host.openSettings(); }
       }
     ];
   }
 
-  function applyStill() {
-    document.body.classList.toggle('still', state.still);
+  function applyPrefs() {
+    document.body.classList.toggle('still', prefs.still);
+    stage.classList.toggle('phosphor-host', prefs.scanlines);
+    stage.classList.toggle('phosphor-soft', prefs.scanlines);
   }
 
   function tileNode(t) {
@@ -123,7 +143,7 @@
     var rows = [
       { title: 'Inputs', tiles: inputTiles() },
       { title: 'Apps', tiles: appTiles() },
-      { title: 'System', tiles: actionTiles() }
+      { title: 'Settings', tiles: actionTiles() }
     ].filter(function (r) { return r.tiles.length; });
 
     shelf.textContent = '';
@@ -171,11 +191,16 @@
       var over = n.offsetLeft + n.offsetWidth - r.strip.parentNode.clientWidth;
       r.strip.style.transform = over > 0 ? 'translateX(' + (-over - 16) + 'px)' : '';
     }
+    if (state.panel) return;
     var t = current();
-    if (!t) { hint.textContent = ''; return; }
-    if (t.kind === 'app') hint.textContent = t.label + (isHidden(t.id) ? '  ·  hidden' : '') + '  ·  menu: ' + (isHidden(t.id) ? 'unhide' : 'hide');
-    else if (t.kind === 'input') hint.textContent = t.label + (t.live ? '  ·  connected' : '');
-    else hint.textContent = '';
+    var parts = [];
+    if (t) {
+      parts.push(t.label);
+      if (t.kind === 'app' && isHidden(t.id)) parts.push('hidden');
+      if (t.kind === 'input' && t.live) parts.push('connected');
+    }
+    parts.push('menu: details');
+    hint.textContent = parts.join('  ·  ');
   }
 
   function move(dr, dc) {
@@ -192,13 +217,10 @@
     focus();
   }
 
-  function toggleHidden() {
-    var t = current();
-    if (!t || t.kind !== 'app') return;
-    var i = state.hidden.indexOf(t.id);
-    if (i >= 0) state.hidden.splice(i, 1); else state.hidden.push(t.id);
+  function toggleHidden(id) {
+    var i = state.hidden.indexOf(id);
+    if (i >= 0) state.hidden.splice(i, 1); else state.hidden.push(id);
     store.set('hidden', state.hidden);
-    build();
   }
 
   function first() {
@@ -207,7 +229,124 @@
     focus();
   }
 
+  function date(ms) {
+    if (!ms) return '';
+    var d = new Date(ms);
+    return d.getDate() + ' ' + months[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear();
+  }
+
+  function detailsFor(t) {
+    if (t.kind === 'action') {
+      return { title: t.label, rows: [['', t.about]], actions: [{ label: 'Open', run: t.open }] };
+    }
+    var d = parse(host.details(t.kind, t.id));
+    if (t.kind === 'input') {
+      var rows = [['Type', d.type], ['State', d.state]];
+      rows.push(['Service', d.service], ['Input', d.id]);
+      return { title: d.label || t.label, rows: rows, actions: [{ label: 'Switch to it', run: t.open }] };
+    }
+    var hidden = isHidden(t.id);
+    return {
+      title: d.label || t.label,
+      rows: [
+        ['Package', d.id],
+        ['Version', d.version + (d.versionCode ? ' (' + d.versionCode + ')' : '')],
+        ['Installed', date(d.installed)],
+        ['Updated', date(d.updated)],
+        ['Kind', (d.system ? 'system' : 'sideloaded') + (d.tv ? ', TV app' : ', phone app')],
+        ['Target SDK', String(d.targetSdk || '')]
+      ],
+      actions: [
+        { label: 'Open', run: t.open },
+        { label: hidden ? 'Unhide' : 'Hide', run: function () { toggleHidden(t.id); closePanel(); build(); } },
+        { label: 'App info', run: function () { host.openAppInfo(t.id); } }
+      ]
+    };
+  }
+
+  function settingsPanel() {
+    function flip(key, on, off) {
+      return {
+        label: (prefs[key] ? on : off),
+        run: function () { prefs[key] = !prefs[key]; store.set(key, prefs[key]); applyPrefs(); tick(); build(); openSettings(true); }
+      };
+    }
+    return {
+      title: 'aguatv',
+      rows: [['', 'Saved on this TV. Hidden apps: ' + state.hidden.length + '.']],
+      actions: [
+        flip('still', 'Boil: off', 'Boil: on'),
+        flip('scanlines', 'Scanlines: on', 'Scanlines: off'),
+        flip('clock24', 'Clock: 24 hour', 'Clock: 12 hour'),
+        flip('showHidden', 'Hidden apps: shown', 'Hidden apps: kept hidden'),
+        { label: 'TV settings', run: function () { closePanel(); host.openSettings(); } }
+      ]
+    };
+  }
+
+  function renderPanel() {
+    var p = state.panel;
+    drawer.textContent = '';
+    drawer.classList.toggle('open', !!p);
+    if (!p) return;
+    drawer.appendChild(el('div', 'drawer-kind fontpack-mono', p.kind === 'settings' ? 'settings' : 'details'));
+    drawer.appendChild(el('h2', 'drawer-title fontpack-display boil-text', p.title));
+    var dl = el('dl', 'facts');
+    p.rows.forEach(function (r) {
+      if (r[0]) dl.appendChild(el('dt', 'fontpack-mono', r[0]));
+      dl.appendChild(el('dd', r[0] ? '' : 'wide', r[1] || '—'));
+    });
+    drawer.appendChild(dl);
+    var list = el('div', 'drawer-actions');
+    p.actions.forEach(function (a, i) {
+      var b = el('div', 'drawer-action fontpack-mono' + (i === p.sel ? ' focus' : ''), a.label);
+      list.appendChild(b);
+    });
+    drawer.appendChild(list);
+    hint.textContent = 'up/down: choose  ·  ok: do it  ·  back: close';
+  }
+
+  function openPanel(kind, p, keepSel) {
+    var sel = keepSel && state.panel && state.panel.kind === kind ? state.panel.sel : 0;
+    p.kind = kind;
+    p.sel = Math.min(sel, p.actions.length - 1);
+    state.panel = p;
+    renderPanel();
+  }
+
+  function closePanel() {
+    state.panel = null;
+    renderPanel();
+    focus();
+  }
+
+  function openDetails() {
+    if (state.panel && state.panel.kind === 'details') { closePanel(); return; }
+    var t = current();
+    if (t) openPanel('details', detailsFor(t));
+  }
+
+  function openSettings(keepSel) {
+    if (state.panel && state.panel.kind === 'settings' && !keepSel) { closePanel(); return; }
+    openPanel('settings', settingsPanel(), keepSel);
+  }
+
+  function panelKey(key) {
+    var p = state.panel;
+    switch (key) {
+      case 'ArrowUp': p.sel = Math.max(0, p.sel - 1); renderPanel(); return true;
+      case 'ArrowDown': p.sel = Math.min(p.actions.length - 1, p.sel + 1); renderPanel(); return true;
+      case 'Enter': case ' ': p.actions[p.sel].run(); return true;
+      case 'ArrowLeft': case 'Escape': closePanel(); return true;
+    }
+    return false;
+  }
+
   document.addEventListener('keydown', function (e) {
+    if (state.panel) {
+      if (panelKey(e.key)) e.preventDefault();
+      return;
+    }
     switch (e.key) {
       case 'ArrowUp': move(-1, 0); break;
       case 'ArrowDown': move(1, 0); break;
@@ -217,7 +356,8 @@
         var t = current();
         if (t) t.open();
         break;
-      case 'ContextMenu': toggleHidden(); break;
+      case 'i': case 'ContextMenu': openDetails(); break;
+      case 's': openSettings(); break;
       case 'Escape': first(); break;
       default: return;
     }
@@ -233,7 +373,7 @@
   var tickTimer = null;
   function tick() {
     var d = new Date();
-    var h = d.getHours() % 12 || 12;
+    var h = prefs.clock24 ? pad(d.getHours()) : (d.getHours() % 12 || 12);
     document.getElementById('clock').textContent = h + ':' + pad(d.getMinutes());
     document.getElementById('date').textContent = days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()];
     clearTimeout(tickTimer);
@@ -241,15 +381,16 @@
   }
 
   window.aguatv = {
-    refresh: build,
+    refresh: function () { build(); if (state.panel && state.panel.kind === 'settings') openSettings(true); },
     resume: function () { tick(); build(); },
     pause: function () { clearTimeout(tickTimer); },
-    home: first,
-    back: first,
-    menu: toggleHidden
+    home: function () { closePanel(); first(); },
+    back: function () { if (state.panel) closePanel(); else first(); },
+    details: openDetails,
+    settings: function () { openSettings(); }
   };
 
-  applyStill();
+  applyPrefs();
   tick();
   build();
   requestAnimationFrame(function () {

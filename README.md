@@ -59,12 +59,12 @@ With several devices connected, set `ANDROID_SERIAL`.
 |---|---|
 | ◀ ▶ ▲ ▼ | move between tiles and rows |
 | OK | open the app, switch to the input, or run the action |
-| ☰ Menu on an app | hide it, or unhide it while hidden apps are shown |
+| ☰ Menu | details for the focused tile, with its actions (open, hide, app info) |
 | Back | jump to the first tile; on an input, return home |
 | Hold HOME | Fire OS's quick menu, unchanged |
 
-The System row opens Settings, turns the boil animation on or off, and shows
-hidden apps. To get Amazon's home screen back, run `aguatv undo`.
+The Settings row opens aguatv's own settings (boil, scanlines, clock, hidden
+apps) and the TV's settings. To get Amazon's home screen back, run `aguatv undo`.
 
 ## The remote
 
@@ -80,12 +80,12 @@ picks a device when several are connected.
 | `Enter` `o` `Space` | OK |
 | `b` `Backspace` `Esc` | Back |
 | `gg` `H` | Home; `gh` holds Home for the quick menu |
-| `m` | Menu |
+| `K` `m` | Menu; on aguatv, the details panel for the focused tile |
 | `p` `[` `]` | play/pause, rewind, fast forward |
 | `+` `=` `-` `M` | volume up, down, mute |
 | `5j`, `Ctrl-u` `Ctrl-d` | counts; five up or down |
 | `i` `a` | type into a text field; `Esc` leaves |
-| `gs` | settings |
+| `gs` `gS` | aguatv's settings panel; the TV's own settings |
 | `:power` `:wake` `:sleep` `:quick` `:type text` | the rest |
 | `?` | key list; `q` or `:q` quits |
 

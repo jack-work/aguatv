@@ -44,6 +44,12 @@ and removes the forward. Check with `adb forward --list` and `ps -A` on the TV.
 
 ## Keys
 
+`K` and `m` both send Menu, which aguatv turns into its details panel. `gs` and
+`gS` run `am start` through the same connection (an `act` with `shell` set), for
+aguatv's settings panel and the TV's `LEANBACK_SETTINGS`. `am` starts a Java
+process, so those two are slower than a key press. A key pressed while HOME is
+still bouncing through Amazon's launcher can land there instead of on aguatv.
+
 Mode is dispatched before key. Normal mode collects a count (two digits, capped
 at 50, and a lone `0` is not a count), a `g` prefix, and then one action. `Esc`
 first cancels a pending count and only otherwise means Back. Insert mode sends

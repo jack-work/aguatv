@@ -29,12 +29,14 @@ import java.util.Collections;
 
 public final class Home extends Activity {
     static final String ORIGIN = "https://aguatv.invalid";
+    static final String EXTRA_OPEN = "aguatv.open";
     private static final int STAGE = 0xFF1A0D0F;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private FrameLayout root;
     private WebView web;
     private boolean ready;
+    private String pendingOpen;
     private TvInputManager tv;
 
     private final BroadcastReceiver packages = new BroadcastReceiver() {
@@ -67,6 +69,7 @@ public final class Home extends Activity {
         root = new FrameLayout(this);
         root.setBackgroundColor(STAGE);
         setContentView(root);
+        pendingOpen = getIntent().getStringExtra(EXTRA_OPEN);
         mount();
 
         IntentFilter f = new IntentFilter();
@@ -168,6 +171,10 @@ public final class Home extends Activity {
         ui.post(() -> {
             ready = true;
             Guard.shown();
+            if (pendingOpen != null) {
+                open(pendingOpen);
+                pendingOpen = null;
+            }
         });
     }
 
@@ -188,6 +195,16 @@ public final class Home extends Activity {
                 launch(i);
             }
         });
+    }
+
+    void openAppInfo(String pkg) {
+        ui.post(() -> launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", pkg, null))));
+    }
+
+    private void open(String panel) {
+        if ("settings".equals(panel)) call("settings");
+        else if ("details".equals(panel)) call("details");
     }
 
     void openSettings() {
@@ -244,14 +261,21 @@ public final class Home extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        call("home");
+        String panel = intent.getStringExtra(EXTRA_OPEN);
+        if (panel == null) call("home");
+        else if (ready) open(panel);
+        else pendingOpen = panel;
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         int code = e.getKeyCode();
-        if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU) {
-            if (e.getAction() == KeyEvent.ACTION_UP) call(code == KeyEvent.KEYCODE_BACK ? "back" : "menu");
+        if (code == KeyEvent.KEYCODE_BACK) {
+            if (e.getAction() == KeyEvent.ACTION_UP) call("back");
+            return true;
+        }
+        if (code == KeyEvent.KEYCODE_MENU) {
+            if (e.getAction() == KeyEvent.ACTION_UP) call("details");
             return true;
         }
         return super.dispatchKeyEvent(e);

@@ -35,6 +35,16 @@ final class Bridge {
     }
 
     @JavascriptInterface
+    public String details(String kind, String id) {
+        return "input".equals(kind) ? Shelf.inputDetails(home, id) : Shelf.appDetails(home, id);
+    }
+
+    @JavascriptInterface
+    public void openAppInfo(String pkg) {
+        home.openAppInfo(pkg);
+    }
+
+    @JavascriptInterface
     public void ready() {
         home.pageReady();
     }

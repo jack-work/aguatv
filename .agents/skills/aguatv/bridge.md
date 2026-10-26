@@ -13,6 +13,8 @@ The page talks to Java through one object, `window.host`, registered with
 | `openApp(id)` | starts the app's launcher activity |
 | `openInput(id)` | shows the input (see below) |
 | `openSettings()` | Fire OS settings |
+| `details(kind, id)` | JSON for the details panel: version, install and update dates, system flag, target sdk for an app; type, state, service and id for an input |
+| `openAppInfo(id)` | Android's app details screen for a package |
 | `ready()` | the page has painted; lets the guard remove its overlay |
 
 Bridge methods run on a binder thread. Anything that touches the UI is posted to
@@ -30,11 +32,17 @@ art, and the tile shows its label.
 | `resume()` | `Home` resumes: redraw the clock and rows |
 | `pause()` | `Home` pauses: stop timers |
 | `home()` | HOME pressed while already home |
-| `back()` | BACK released |
-| `menu()` | Menu released |
+| `back()` | BACK released: closes a panel, else focuses the first tile |
+| `details()` | Menu released: toggles the details panel for the focused tile |
+| `settings()` | `Home` started with `--es aguatv.open settings` |
 
 BACK and Menu never reach the page as key events; `Home.dispatchKeyEvent` turns
-them into these calls. The D-pad arrives as `ArrowUp`/`ArrowDown`/`ArrowLeft`/
+them into these calls. The Info key would have been the natural details key, but
+Fire OS takes it before any app and shows a "pair your remote" dialog.
+
+`am start -n tv.aguatv/.Home --es aguatv.open settings` (or `details`) opens a
+panel from outside; the remote's `gs` uses it. If the page has not loaded yet,
+`Home` holds the request until `ready()`. The D-pad arrives as `ArrowUp`/`ArrowDown`/`ArrowLeft`/
 `ArrowRight` and OK as `Enter`, handled in `home.js`.
 
 ## Inputs
@@ -47,5 +55,6 @@ screen on while there is video, and BACK returns home.
 
 ## Page state
 
-Hidden apps and the boil switch live in `localStorage` under `aguatv.*`. Clearing
+Hidden apps and the settings panel's switches (boil, scanlines, 24-hour clock,
+showing hidden apps) live in `localStorage` under `aguatv.*`. Clearing
 the app's data resets them.

@@ -19,6 +19,7 @@ const (
 )
 
 type act struct {
+	shell []string
 	code  int
 	text  string
 	hold  time.Duration
@@ -126,7 +127,13 @@ func (m model) fire(a act, n int) (model, tea.Cmd) {
 	return m, tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg { return unlightMsg{seq} })
 }
 
+var (
+	aguatvSettings = act{shell: []string{"am", "start", "-n", "tv.aguatv/.Home", "--es", "aguatv.open", "settings"}, label: "aguatv settings", lit: "set"}
+	tvSettings     = act{shell: []string{"am", "start", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LEANBACK_SETTINGS"}, label: "TV settings", lit: "set"}
+)
+
 var keyActs = map[string]act{
+	"K":         {code: keyMenu, label: "details", lit: "info"},
 	"k":         {code: keyUp, label: "up", lit: "up"},
 	"up":        {code: keyUp, label: "up", lit: "up"},
 	"j":         {code: keyDown, label: "down", lit: "down"},
@@ -160,7 +167,9 @@ func (m model) normalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "g":
 			return m.fire(act{code: keyHome, label: "home", lit: "home"}, 1)
 		case "s":
-			return m.fire(act{code: keySettings, label: "settings"}, 1)
+			return m.fire(aguatvSettings, 1)
+		case "S":
+			return m.fire(tvSettings, 1)
 		case "h":
 			return m.fire(act{code: keyHome, hold: 1200 * time.Millisecond, label: "quick menu", lit: "home"}, 1)
 		}
@@ -257,7 +266,9 @@ var commands = map[string]act{
 	"home":     {code: keyHome, label: "home", lit: "home"},
 	"back":     {code: keyBack, label: "back", lit: "back"},
 	"menu":     {code: keyMenu, label: "menu", lit: "menu"},
-	"settings": {code: keySettings, label: "settings"},
+	"settings": aguatvSettings,
+	"tv":       tvSettings,
+	"details":  {code: keyMenu, label: "details", lit: "info"},
 	"power":    {code: keyPower, label: "power", lit: "power"},
 	"wake":     {code: keyWakeup, label: "wake", lit: "power"},
 	"sleep":    {code: keySleep, label: "sleep", lit: "power"},
@@ -322,9 +333,10 @@ func (m model) remote() string {
 	)
 	nav := row(m.button("back", " back ", third), m.button("home", " home ", w-2*third), m.button("menu", " menu ", third))
 	media := row(m.button("rew", " ◀◀ ", third), m.button("play", " ▶‖ ", w-2*third), m.button("ff", " ▶▶ ", third))
+	extra := row(m.button("info", " info ", third), lipgloss.NewStyle().Width(w-2*third).Render(""), m.button("set", " set ", third))
 	vol := row(m.button("vol-", " vol- ", third), m.button("mute", " mute ", w-2*third), m.button("vol+", " vol+ ", third))
 	head := row(title.Render("aguatv"), lipgloss.PlaceHorizontal(w-6, lipgloss.Right, m.button("power", " ⏻ ", 3)))
-	return body.Render(lipgloss.JoinVertical(lipgloss.Left, head, "", dpad, "", nav, "", media, vol))
+	return body.Render(lipgloss.JoinVertical(lipgloss.Left, head, "", dpad, "", nav, extra, "", media, vol))
 }
 
 func (m model) statusLine() string {
@@ -362,12 +374,13 @@ func (m model) statusLine() string {
 
 const helpText = `h j k l   d-pad        enter o ␣   ok
 b ⌫ esc   back         gg H        home
-m         menu         gh :quick   quick menu
+K m       details      gh :quick   quick menu
 p         play/pause   [ ]         rewind / ff
 + = -     volume       M           mute
 5j        repeat       ^u ^d       up / down ×5
 i a       type text    esc         leave typing
-gs        settings     :power :wake :sleep
+gs        aguatv set.  gS          TV settings
+:power    :wake        :sleep      :details
 :type txt send text    q :q        quit`
 
 func (m model) View() string {

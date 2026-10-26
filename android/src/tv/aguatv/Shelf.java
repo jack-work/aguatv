@@ -3,6 +3,8 @@ package tv.aguatv;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
@@ -109,6 +111,67 @@ final class Shelf {
         for (JSONObject o : hdmi) out.put(o);
         for (JSONObject o : other) out.put(o);
         return out.toString();
+    }
+
+    static String appDetails(Context c, String pkg) {
+        App a = apps(c).get(pkg);
+        if (a == null) return "{}";
+        PackageManager pm = c.getPackageManager();
+        try {
+            PackageInfo info = pm.getPackageInfo(pkg, 0);
+            ApplicationInfo ai = info.applicationInfo;
+            return new JSONObject()
+                    .put("kind", "app")
+                    .put("id", pkg)
+                    .put("label", a.label)
+                    .put("version", info.versionName == null ? "" : info.versionName)
+                    .put("versionCode", info.getLongVersionCode())
+                    .put("installed", info.firstInstallTime)
+                    .put("updated", info.lastUpdateTime)
+                    .put("system", (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0)
+                    .put("targetSdk", ai.targetSdkVersion)
+                    .put("tv", a.leanback)
+                    .toString();
+        } catch (PackageManager.NameNotFoundException | JSONException e) {
+            return "{}";
+        }
+    }
+
+    static String inputDetails(Context c, String inputId) {
+        TvInputManager tv = (TvInputManager) c.getSystemService(Context.TV_INPUT_SERVICE);
+        if (tv == null) return "{}";
+        TvInputInfo in = tv.getTvInputInfo(inputId);
+        if (in == null) return "{}";
+        int state = tv.getInputState(inputId);
+        String stateName = state == TvInputManager.INPUT_STATE_CONNECTED ? "connected"
+                : state == TvInputManager.INPUT_STATE_CONNECTED_STANDBY ? "standby" : "disconnected";
+        try {
+            return new JSONObject()
+                    .put("kind", "input")
+                    .put("id", inputId)
+                    .put("label", inputLabel(c, inputId).toString())
+                    .put("type", typeName(in.getType()))
+                    .put("state", stateName)
+                    .put("service", in.getServiceInfo().packageName)
+                    .toString();
+        } catch (JSONException e) {
+            return "{}";
+        }
+    }
+
+    private static String typeName(int type) {
+        switch (type) {
+            case TvInputInfo.TYPE_HDMI: return "HDMI";
+            case TvInputInfo.TYPE_COMPOSITE: return "Composite";
+            case TvInputInfo.TYPE_COMPONENT: return "Component";
+            case TvInputInfo.TYPE_SVIDEO: return "S-Video";
+            case TvInputInfo.TYPE_SCART: return "SCART";
+            case TvInputInfo.TYPE_VGA: return "VGA";
+            case TvInputInfo.TYPE_DVI: return "DVI";
+            case TvInputInfo.TYPE_DISPLAY_PORT: return "DisplayPort";
+            case TvInputInfo.TYPE_TUNER: return "Tuner";
+            default: return "Other";
+        }
     }
 
     static CharSequence inputLabel(Context c, String inputId) {

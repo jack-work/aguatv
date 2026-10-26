@@ -34,7 +34,6 @@ const (
 	keyPower       = 26
 	keyDel         = 67
 	keyEnter       = 66
-	keySettings    = 176
 	keyWakeup      = 224
 	keySleep       = 223
 )
@@ -48,6 +47,7 @@ const remoteJar = "/data/local/tmp/aguatv-remote.jar"
 
 type tv interface {
 	press(code int) error
+	shell(args ...string) error
 	hold(code int, d time.Duration) error
 	text(s string) error
 	name() string
@@ -164,6 +164,11 @@ func (s *scrcpy) text(t string) error {
 	return err
 }
 
+func (s *scrcpy) shell(args ...string) error {
+	_, err := s.a.Shell(args...)
+	return err
+}
+
 func (s *scrcpy) name() string { return "scrcpy" }
 
 func (s *scrcpy) close() {
@@ -195,6 +200,11 @@ func (s shellInput) text(t string) error {
 	escaped := strings.NewReplacer(" ", "%s", "'", "\\'", "\"", "\\\"", "&", "\\&", "(", "\\(", ")", "\\)",
 		";", "\\;", "<", "\\<", ">", "\\>", "|", "\\|", "*", "\\*", "$", "\\$").Replace(t)
 	_, err := s.a.Run("shell", "input", "text", escaped)
+	return err
+}
+
+func (s shellInput) shell(args ...string) error {
+	_, err := s.a.Shell(args...)
 	return err
 }
 
