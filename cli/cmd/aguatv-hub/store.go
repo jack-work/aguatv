@@ -15,46 +15,27 @@ import (
 	"time"
 )
 
-type Device struct {
+type Screen struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Kind      string    `json:"kind"`
 	Owner     string    `json:"owner"`
+	Remote    bool      `json:"remote"`
 	TokenHash string    `json:"tokenHash"`
-	Session   bool      `json:"session"`
 	Created   time.Time `json:"created"`
 	LastSeen  time.Time `json:"lastSeen"`
-	TTL       Duration  `json:"ttl"`
-	ADB       string    `json:"adb,omitempty"`
-}
-
-type Duration struct{ time.Duration }
-
-func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(d.String()) }
-
-func (d *Duration) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
-	v, err := time.ParseDuration(s)
-	d.Duration = v
-	return err
-}
-
-func (d Device) expired(now time.Time) bool {
-	return d.TTL.Duration > 0 && now.Sub(d.LastSeen) > d.TTL.Duration
 }
 
 type Store struct {
 	mu      sync.Mutex
 	path    string
-	devices map[string]*Device
+	screens map[string]*Screen
+	idle    time.Duration
 	now     func() time.Time
 }
 
 func OpenStore(path string) (*Store, error) {
-	s := &Store{path: path, devices: map[string]*Device{}, now: time.Now}
+	s := &Store{path: path, screens: map[string]*Screen{}, idle: 90 * 24 * time.Hour, now: time.Now}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -62,32 +43,34 @@ func OpenStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	var list []*Device
+	var list []*Screen
 	if err := json.Unmarshal(b, &list); err != nil {
 		return nil, err
 	}
 	for _, d := range list {
-		s.devices[d.ID] = d
+		s.screens[d.ID] = d
 	}
 	return s, nil
+}
+
+func (s *Store) expired(d *Screen) bool {
+	return s.now().Sub(d.LastSeen) > s.idle
 }
 
 func (s *Store) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	list := make([]*Device, 0, len(s.devices))
-	for _, d := range s.devices {
-		if !d.Session {
-			list = append(list, d)
-		}
+	list := make([]*Screen, 0, len(s.screens))
+	for _, d := range s.screens {
+		list = append(list, d)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 	b, err := json.MarshalIndent(list, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".devices-*")
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".screens-*")
 	if err != nil {
 		return err
 	}
@@ -119,55 +102,54 @@ func hashToken(t string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *Store) Add(d Device) (string, Device, error) {
+func (s *Store) Add(d Screen) (string, Screen, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	token := randomToken(32)
 	now := s.now()
+	d.ID = randomToken(9)
 	d.TokenHash = hashToken(token)
 	d.Created, d.LastSeen = now, now
-	if d.ID == "" {
-		d.ID = randomToken(9)
-	}
-	s.devices[d.ID] = &d
+	s.screens[d.ID] = &d
 	return token, d, s.saveLocked()
 }
 
-func (s *Store) ByToken(token string) (Device, bool) {
+func (s *Store) ByToken(owner, token string) (Screen, bool) {
 	if token == "" {
-		return Device{}, false
+		return Screen{}, false
 	}
 	want := hashToken(token)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.now()
-	for id, d := range s.devices {
+	for id, d := range s.screens {
 		if subtle.ConstantTimeCompare([]byte(d.TokenHash), []byte(want)) != 1 {
 			continue
 		}
-		if d.expired(now) {
-			delete(s.devices, id)
-			s.saveLocked()
-			return Device{}, false
+		if d.Owner != owner {
+			return Screen{}, false
 		}
-		if now.Sub(d.LastSeen) > time.Hour {
-			d.LastSeen = now
+		if s.expired(d) {
+			delete(s.screens, id)
 			s.saveLocked()
-		} else {
-			d.LastSeen = now
+			return Screen{}, false
+		}
+		now := s.now()
+		stale := now.Sub(d.LastSeen) > time.Hour
+		d.LastSeen = now
+		if stale {
+			s.saveLocked()
 		}
 		return *d, true
 	}
-	return Device{}, false
+	return Screen{}, false
 }
 
-func (s *Store) Owned(owner string) []Device {
+func (s *Store) Owned(owner string) []Screen {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.now()
-	var out []Device
-	for _, d := range s.devices {
-		if d.Owner == owner && !d.expired(now) {
+	var out []Screen
+	for _, d := range s.screens {
+		if d.Owner == owner && !s.expired(d) {
 			out = append(out, *d)
 		}
 	}
@@ -175,36 +157,36 @@ func (s *Store) Owned(owner string) []Device {
 	return out
 }
 
-func (s *Store) Get(owner, id string) (Device, bool) {
+func (s *Store) Get(owner, id string) (Screen, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d, ok := s.devices[id]
-	if !ok || d.Owner != owner || d.expired(s.now()) {
-		return Device{}, false
+	d, ok := s.screens[id]
+	if !ok || d.Owner != owner || s.expired(d) {
+		return Screen{}, false
 	}
 	return *d, true
 }
 
-func (s *Store) Rename(owner, id, name string) error {
+func (s *Store) Update(owner, id string, f func(*Screen)) (Screen, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d, ok := s.devices[id]
+	d, ok := s.screens[id]
 	if !ok || d.Owner != owner {
-		return errNoDevice
+		return Screen{}, errNoScreen
 	}
-	d.Name = name
-	return s.saveLocked()
+	f(d)
+	return *d, s.saveLocked()
 }
 
 func (s *Store) Remove(owner, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d, ok := s.devices[id]
+	d, ok := s.screens[id]
 	if !ok || d.Owner != owner {
-		return errNoDevice
+		return errNoScreen
 	}
-	delete(s.devices, id)
+	delete(s.screens, id)
 	return s.saveLocked()
 }
 
-var errNoDevice = errors.New("no such device")
+var errNoScreen = errors.New("no such screen")

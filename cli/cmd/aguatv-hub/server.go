@@ -5,19 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
-	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/jack-work/aguatv/cli/internal/play"
 	"github.com/jack-work/aguatv/cli/internal/tv"
-	"rsc.io/qr"
 )
 
-const cookieName = "aguatv_device"
+const cookieName = "aguatv_screen"
 
 type PlayState struct {
 	Title    string    `json:"title"`
@@ -27,16 +30,22 @@ type PlayState struct {
 	At       time.Time `json:"at"`
 }
 
+type Caller struct {
+	User   string
+	Groups string
+	Screen *Screen
+}
+
+func (c Caller) remote() bool { return c.Screen != nil && c.Screen.Remote }
+
 type Hub struct {
 	store    *Store
-	linker   *Linker
 	queues   *Queues
-	casts    *Casts
-	source   Source
 	adb      map[string]*link
 	adbGroup string
-	site     http.Handler
-	public   string
+	site     fs.FS
+	cspDir   string
+	files    *url.URL
 	secure   bool
 	wait     time.Duration
 	stateMu  sync.Mutex
@@ -44,35 +53,33 @@ type Hub struct {
 	mux      *http.ServeMux
 }
 
-func NewHub(store *Store, casts *Casts, source Source, adb map[string]*link, site http.Handler, public string, secure bool) *Hub {
+func NewHub(store *Store, files *url.URL, adb map[string]*link, site fs.FS, secure bool) *Hub {
 	h := &Hub{
-		store: store, linker: NewLinker(), queues: NewQueues(), casts: casts, source: source,
-		adb: adb, site: site, public: strings.TrimSuffix(public, "/"), secure: secure,
+		store: store, queues: NewQueues(), adb: adb, site: site, files: files, secure: secure,
 		wait: 25 * time.Second, state: map[string]PlayState{}, mux: http.NewServeMux(),
 	}
 	m := h.mux
-	m.HandleFunc("GET /receiver", h.page("/receiver.html"))
-	m.HandleFunc("POST /device/start", h.deviceStart)
-	m.HandleFunc("POST /device/claim", h.deviceClaim)
-	m.HandleFunc("GET /device/qr", h.deviceQR)
-	m.HandleFunc("GET /device/whoami", h.asDevice(h.deviceWhoami))
-	m.HandleFunc("GET /device/next", h.asDevice(h.deviceNext))
-	m.HandleFunc("POST /device/state", h.asDevice(h.deviceState))
-	m.HandleFunc("GET /stream", h.asDevice(h.stream))
-
-	m.HandleFunc("GET /tvlogin", h.asPerson(h.pageFor("/tvlogin.html")))
-	m.HandleFunc("GET /api/me", h.asPerson(h.me))
-	m.HandleFunc("GET /api/devices", h.asPerson(h.devices))
-	m.HandleFunc("GET /api/link", h.asPerson(h.peekLink))
-	m.HandleFunc("POST /api/link", h.asPerson(h.approveLink))
-	m.HandleFunc("POST /api/devices/{id}/rename", h.asPerson(h.rename))
-	m.HandleFunc("DELETE /api/devices/{id}", h.asPerson(h.unlink))
-	m.HandleFunc("POST /api/devices/{id}/cast", h.asPerson(h.cast))
-	m.HandleFunc("POST /api/devices/{id}/control", h.asPerson(h.control))
-	m.HandleFunc("POST /api/adb/{name}/press", h.asPerson(h.adbPress))
-	m.HandleFunc("POST /api/adb/{name}/text", h.asPerson(h.adbText))
-	m.HandleFunc("GET /{$}", h.asPerson(h.pageFor("/index.html")))
-	m.HandleFunc("GET /", h.asPerson(func(w http.ResponseWriter, r *http.Request, _ Caster) { h.site.ServeHTTP(w, r) }))
+	m.HandleFunc("GET /api/me", h.as(h.me))
+	m.HandleFunc("POST /api/me", h.as(h.register))
+	m.HandleFunc("DELETE /api/me", h.as(h.forget))
+	m.HandleFunc("GET /api/me/next", h.asScreen(h.next))
+	m.HandleFunc("POST /api/me/state", h.asScreen(h.report))
+	m.HandleFunc("GET /api/screens", h.as(h.screens))
+	m.HandleFunc("POST /api/screens/{id}/cast", h.asRemote(h.cast))
+	m.HandleFunc("POST /api/screens/{id}/control", h.asRemote(h.control))
+	m.HandleFunc("POST /api/screens/{id}/name", h.asRemote(h.rename))
+	m.HandleFunc("DELETE /api/screens/{id}", h.asRemote(h.remove))
+	m.HandleFunc("POST /api/adb/{name}/press", h.asRemote(h.adbPress))
+	m.HandleFunc("POST /api/adb/{name}/text", h.asRemote(h.adbText))
+	m.HandleFunc("GET /{$}", h.as(h.page("index.html")))
+	static := http.FileServerFS(site)
+	m.HandleFunc("GET /", h.as(func(w http.ResponseWriter, r *http.Request, _ Caller) {
+		if strings.HasSuffix(r.URL.Path, ".html") || strings.HasSuffix(r.URL.Path, ".csp") {
+			http.NotFound(w, r)
+			return
+		}
+		static.ServeHTTP(w, r)
+	}))
 	return h
 }
 
@@ -113,149 +120,174 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-func (h *Hub) page(name string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		r2 := r.Clone(r.Context())
-		r2.URL.Path = name
-		h.site.ServeHTTP(w, r2)
+func (h *Hub) csp(name string) string {
+	var hashes string
+	if h.cspDir != "" {
+		if b, err := os.ReadFile(filepath.Join(h.cspDir, filepath.Base(name)+".csp")); err == nil {
+			hashes = strings.TrimSpace(string(b))
+		}
+	}
+	media := "'self'"
+	if h.files != nil {
+		media += " " + h.files.Scheme + "://" + h.files.Host
+	}
+	return strings.Join([]string{
+		"default-src 'none'",
+		strings.TrimSpace("script-src 'self' " + hashes),
+		"style-src 'self' 'unsafe-inline'",
+		"img-src 'self' data:",
+		"font-src 'self' data:",
+		"media-src " + media,
+		"connect-src 'self'",
+		"base-uri 'none'",
+		"form-action 'none'",
+		"frame-ancestors 'none'",
+	}, "; ")
+}
+
+func (h *Hub) page(name string) func(http.ResponseWriter, *http.Request, Caller) {
+	return func(w http.ResponseWriter, r *http.Request, _ Caller) {
+		w.Header().Set("Content-Security-Policy", h.csp(name))
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		http.ServeFileFS(w, r, h.site, name)
 	}
 }
 
-func (h *Hub) pageFor(name string) func(http.ResponseWriter, *http.Request, Caster) {
-	p := h.page(name)
-	return func(w http.ResponseWriter, r *http.Request, _ Caster) { p(w, r) }
-}
-
-func (h *Hub) asPerson(f func(http.ResponseWriter, *http.Request, Caster)) http.HandlerFunc {
+func (h *Hub) as(f func(http.ResponseWriter, *http.Request, Caller)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := strings.TrimSpace(r.Header.Get("Remote-User"))
 		if user == "" {
 			fail(w, http.StatusUnauthorized, errors.New("no login"))
 			return
 		}
-		f(w, r, Caster{User: user, Groups: r.Header.Get("Remote-Groups")})
+		c := Caller{User: user, Groups: r.Header.Get("Remote-Groups")}
+		if k, err := r.Cookie(cookieName); err == nil {
+			if s, ok := h.store.ByToken(user, k.Value); ok {
+				c.Screen = &s
+			}
+		}
+		f(w, r, c)
 	}
 }
 
-func (h *Hub) asDevice(f func(http.ResponseWriter, *http.Request, Device)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie(cookieName)
-		if err != nil {
-			fail(w, http.StatusUnauthorized, errors.New("not linked"))
+func (h *Hub) asScreen(f func(http.ResponseWriter, *http.Request, Caller)) http.HandlerFunc {
+	return h.as(func(w http.ResponseWriter, r *http.Request, c Caller) {
+		if c.Screen == nil {
+			fail(w, http.StatusUnauthorized, errors.New("this browser is not a screen"))
 			return
 		}
-		d, ok := h.store.ByToken(c.Value)
-		if !ok {
-			h.clearCookie(w)
-			fail(w, http.StatusUnauthorized, errors.New("not linked"))
-			return
-		}
-		f(w, r, d)
-	}
+		f(w, r, c)
+	})
 }
 
-func (h *Hub) setCookie(w http.ResponseWriter, token string, d Device) {
-	c := &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, Secure: h.secure, SameSite: http.SameSiteStrictMode}
-	if !d.Session {
-		c.MaxAge = int(d.TTL.Seconds())
-	}
-	http.SetCookie(w, c)
+func (h *Hub) asRemote(f func(http.ResponseWriter, *http.Request, Caller)) http.HandlerFunc {
+	return h.as(func(w http.ResponseWriter, r *http.Request, c Caller) {
+		if !c.remote() {
+			fail(w, http.StatusForbidden, errors.New("this screen is not a remote"))
+			return
+		}
+		f(w, r, c)
+	})
+}
+
+func (h *Hub) setCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, Secure: h.secure, SameSite: http.SameSiteStrictMode, MaxAge: 400 * 24 * 3600})
 }
 
 func (h *Hub) clearCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, Secure: h.secure, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 }
 
-func clientAddr(r *http.Request) string {
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		return strings.TrimSpace(strings.Split(v, ",")[0])
+func screenName(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 64 || strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return "", errors.New("a name is 1 to 64 printable characters")
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return s, nil
 }
 
-func (h *Hub) linkURL(code string) string {
-	return h.public + "/tvlogin?code=" + FormatCode(code)
+type screenView struct {
+	ID       string     `json:"id"`
+	Name     string     `json:"name"`
+	Kind     string     `json:"kind"`
+	Remote   bool       `json:"remote"`
+	Here     bool       `json:"here,omitempty"`
+	LastSeen time.Time  `json:"lastSeen"`
+	State    *PlayState `json:"state,omitempty"`
 }
 
-func (h *Hub) deviceStart(w http.ResponseWriter, r *http.Request) {
+func (h *Hub) view(s Screen, c Caller) screenView {
+	v := screenView{ID: s.ID, Name: s.Name, Kind: s.Kind, Remote: s.Remote, LastSeen: s.LastSeen, Here: c.Screen != nil && c.Screen.ID == s.ID}
+	h.stateMu.Lock()
+	if st, ok := h.state[s.ID]; ok && time.Since(st.At) < 2*time.Minute {
+		v.State = &st
+	}
+	h.stateMu.Unlock()
+	return v
+}
+
+func (h *Hub) me(w http.ResponseWriter, r *http.Request, c Caller) {
+	out := map[string]any{"user": c.User}
+	if c.Screen != nil {
+		out["screen"] = h.view(*c.Screen, c)
+	}
+	reply(w, http.StatusOK, out)
+}
+
+func (h *Hub) register(w http.ResponseWriter, r *http.Request, c Caller) {
 	var body struct {
-		Kind    string `json:"kind"`
-		Name    string `json:"name"`
-		Session bool   `json:"session"`
+		Name   string `json:"name"`
+		Remote bool   `json:"remote"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	kind := "browser"
-	if body.Kind == "tv" {
-		kind = "tv"
-	}
-	name := strings.TrimSpace(body.Name)
-	if len(name) > 64 {
-		name = name[:64]
-	}
-	if name == "" {
-		name = map[string]string{"tv": "TV", "browser": "Browser"}[kind]
-	}
-	code, claim, err := h.linker.Start(kind, name, clientAddr(r), body.Session)
+	name, err := screenName(body.Name)
 	if err != nil {
-		fail(w, http.StatusTooManyRequests, err)
+		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	reply(w, http.StatusOK, map[string]any{
-		"code": FormatCode(code), "claim": claim, "url": h.public + "/tvlogin", "link": h.linkURL(code), "expires": int(h.linker.ttl.Seconds()),
-	})
-}
-
-func (h *Hub) deviceClaim(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Code  string `json:"code"`
-		Claim string `json:"claim"`
-	}
-	if !decode(w, r, &body) {
+	if c.Screen != nil {
+		s, err := h.store.Update(c.User, c.Screen.ID, func(s *Screen) { s.Name, s.Remote = name, body.Remote })
+		if err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		reply(w, http.StatusOK, h.view(s, Caller{Screen: &s}))
 		return
 	}
-	token, d, waiting, err := h.linker.Claim(body.Code, body.Claim)
-	switch {
-	case err != nil:
-		fail(w, http.StatusGone, err)
-	case waiting:
-		reply(w, http.StatusAccepted, map[string]bool{"waiting": true})
-	default:
-		h.setCookie(w, token, d)
-		reply(w, http.StatusOK, map[string]string{"id": d.ID, "name": d.Name})
-	}
-}
-
-func (h *Hub) deviceQR(w http.ResponseWriter, r *http.Request) {
-	code := normalizeCode(r.URL.Query().Get("code"))
-	h.linker.mu.Lock()
-	_, ok := h.linker.pending[code]
-	h.linker.mu.Unlock()
-	if !ok {
-		fail(w, http.StatusNotFound, errBadCode)
-		return
-	}
-	c, err := qr.Encode(h.linkURL(code), qr.M)
+	token, s, err := h.store.Add(Screen{Name: name, Kind: "browser", Owner: c.User, Remote: body.Remote})
 	if err != nil {
 		fail(w, http.StatusInternalServerError, err)
 		return
 	}
-	c.Scale = 8
-	w.Header().Set("Content-Type", "image/png")
-	w.Write(c.PNG())
+	h.setCookie(w, token)
+	log.Printf("%s registered screen %s (remote %v)", c.User, s.ID, s.Remote)
+	reply(w, http.StatusOK, h.view(s, Caller{Screen: &s}))
 }
 
-func (h *Hub) deviceWhoami(w http.ResponseWriter, r *http.Request, d Device) {
-	reply(w, http.StatusOK, map[string]string{"id": d.ID, "name": d.Name, "kind": d.Kind})
+func (h *Hub) drop(owner, id string) error {
+	if err := h.store.Remove(owner, id); err != nil {
+		return err
+	}
+	h.queues.Push(id, Event{Kind: "forgotten"})
+	h.stateMu.Lock()
+	delete(h.state, id)
+	h.stateMu.Unlock()
+	return nil
 }
 
-func (h *Hub) deviceNext(w http.ResponseWriter, r *http.Request, d Device) {
-	e, ok := h.queues.Next(r.Context(), d.ID, h.wait)
+func (h *Hub) forget(w http.ResponseWriter, r *http.Request, c Caller) {
+	h.clearCookie(w)
+	if c.Screen != nil {
+		h.drop(c.User, c.Screen.ID)
+		h.queues.Drop(c.Screen.ID)
+	}
+	reply(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *Hub) next(w http.ResponseWriter, r *http.Request, c Caller) {
+	e, ok := h.queues.Next(r.Context(), c.Screen.ID, h.wait)
 	if !ok {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -263,196 +295,81 @@ func (h *Hub) deviceNext(w http.ResponseWriter, r *http.Request, d Device) {
 	reply(w, http.StatusOK, e)
 }
 
-func (h *Hub) deviceState(w http.ResponseWriter, r *http.Request, d Device) {
+func (h *Hub) report(w http.ResponseWriter, r *http.Request, c Caller) {
 	var st PlayState
 	if !decode(w, r, &st) {
 		return
 	}
+	if len(st.Title) > 256 {
+		st.Title = st.Title[:256]
+	}
 	st.At = time.Now()
 	h.stateMu.Lock()
-	h.state[d.ID] = st
+	h.state[c.Screen.ID] = st
 	h.stateMu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Hub) stream(w http.ResponseWriter, r *http.Request, d Device) {
-	cast, err := h.casts.For(r.Context(), d.ID, r.URL.Query().Get("cast"))
-	if err != nil {
-		code := http.StatusNotFound
-		if errors.Is(err, errNotAllowed) {
-			code = http.StatusForbidden
-		} else if !errors.Is(err, errNoCast) {
-			code = http.StatusBadGateway
+func (h *Hub) screens(w http.ResponseWriter, r *http.Request, c Caller) {
+	out := []screenView{}
+	for _, s := range h.store.Owned(c.User) {
+		out = append(out, h.view(s, c))
+	}
+	adb := []map[string]any{}
+	if c.remote() && h.mayADB(c) {
+		names := make([]string, 0, len(h.adb))
+		for n := range h.adb {
+			names = append(names, n)
 		}
-		fail(w, code, err)
-		return
-	}
-	if ks, ok := h.source.(keyServer); ok {
-		ks.ServeKey(w, r, cast.Key)
-		return
-	}
-	resp, err := h.source.Open(r.Context(), cast.Key, r.Header)
-	if err != nil {
-		fail(w, http.StatusBadGateway, err)
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
-		fail(w, http.StatusBadGateway, fmt.Errorf("storage answered %d", resp.StatusCode))
-		return
-	}
-	for _, k := range forwardedResponseHeaders {
-		if v := resp.Header.Get(k); v != "" {
-			w.Header().Set(k, v)
+		sort.Strings(names)
+		for _, n := range names {
+			st := h.adb[n].status()
+			st["name"] = n
+			adb = append(adb, st)
 		}
 	}
-	w.WriteHeader(resp.StatusCode)
-	if r.Method != http.MethodHead {
-		io.Copy(w, resp.Body)
-	}
+	reply(w, http.StatusOK, map[string]any{"screens": out, "remotes": adb})
 }
 
-func (h *Hub) me(w http.ResponseWriter, r *http.Request, c Caster) {
-	reply(w, http.StatusOK, map[string]string{"user": c.User})
-}
-
-type deviceView struct {
-	ID       string     `json:"id"`
-	Name     string     `json:"name"`
-	Kind     string     `json:"kind"`
-	Session  bool       `json:"session"`
-	LastSeen time.Time  `json:"lastSeen"`
-	State    *PlayState `json:"state,omitempty"`
-}
-
-func (h *Hub) devices(w http.ResponseWriter, r *http.Request, c Caster) {
-	var out []deviceView
-	h.stateMu.Lock()
-	for _, d := range h.store.Owned(c.User) {
-		v := deviceView{ID: d.ID, Name: d.Name, Kind: d.Kind, Session: d.Session, LastSeen: d.LastSeen}
-		if st, ok := h.state[d.ID]; ok && time.Since(st.At) < 2*time.Minute {
-			v.State = &st
-		}
-		out = append(out, v)
-	}
-	h.stateMu.Unlock()
-	var adb []map[string]any
-	names := make([]string, 0, len(h.adb))
-	for n := range h.adb {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	if !h.mayADB(c) {
-		names = nil
-	}
-	for _, n := range names {
-		st := h.adb[n].status()
-		st["name"] = n
-		adb = append(adb, st)
-	}
-	reply(w, http.StatusOK, map[string]any{"devices": out, "remotes": adb})
-}
-
-func (h *Hub) peekLink(w http.ResponseWriter, r *http.Request, c Caster) {
-	p, err := h.linker.Peek(c.User, r.URL.Query().Get("code"))
-	if err != nil {
-		code := http.StatusNotFound
-		if errors.Is(err, errRateLimited) {
-			code = http.StatusTooManyRequests
-		}
-		fail(w, code, err)
-		return
-	}
-	reply(w, http.StatusOK, map[string]any{"code": FormatCode(p.Code), "kind": p.Kind, "name": p.Proposed, "asked": p.Asked, "from": p.Addr, "session": p.Session})
-}
-
-func (h *Hub) approveLink(w http.ResponseWriter, r *http.Request, c Caster) {
-	var body struct {
-		Code string `json:"code"`
-		Name string `json:"name"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	name := strings.TrimSpace(body.Name)
-	if len(name) > 64 {
-		name = name[:64]
-	}
-	d, err := h.linker.Approve(c.User, body.Code, h.store, name)
-	if err != nil {
-		code := http.StatusNotFound
-		if errors.Is(err, errRateLimited) {
-			code = http.StatusTooManyRequests
-		}
-		fail(w, code, err)
-		return
-	}
-	log.Printf("%s linked device %s (%s)", c.User, d.ID, d.Kind)
-	reply(w, http.StatusOK, map[string]string{"id": d.ID, "name": d.Name})
-}
-
-func (h *Hub) rename(w http.ResponseWriter, r *http.Request, c Caster) {
-	var body struct {
-		Name string `json:"name"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	name := strings.TrimSpace(body.Name)
-	if name == "" || len(name) > 64 {
-		fail(w, http.StatusBadRequest, errors.New("a name is 1 to 64 characters"))
-		return
-	}
-	if err := h.store.Rename(c.User, r.PathValue("id"), name); err != nil {
-		fail(w, http.StatusNotFound, err)
-		return
-	}
-	reply(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (h *Hub) unlink(w http.ResponseWriter, r *http.Request, c Caster) {
-	id := r.PathValue("id")
-	if err := h.store.Remove(c.User, id); err != nil {
-		fail(w, http.StatusNotFound, err)
-		return
-	}
-	h.casts.DropDevice(id)
-	h.queues.Drop(id)
-	log.Printf("%s unlinked device %s", c.User, id)
-	reply(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (h *Hub) cast(w http.ResponseWriter, r *http.Request, c Caster) {
-	var body struct {
-		Ref string `json:"ref"`
-	}
-	if !decode(w, r, &body) {
-		return
-	}
-	d, ok := h.store.Get(c.User, r.PathValue("id"))
+func (h *Hub) target(w http.ResponseWriter, r *http.Request, c Caller) (Screen, bool) {
+	s, ok := h.store.Get(c.User, r.PathValue("id"))
 	if !ok {
-		fail(w, http.StatusNotFound, errNoDevice)
+		fail(w, http.StatusNotFound, errNoScreen)
+	}
+	return s, ok
+}
+
+func (h *Hub) cast(w http.ResponseWriter, r *http.Request, c Caller) {
+	var body struct {
+		URL string `json:"url"`
+	}
+	if !decode(w, r, &body) {
 		return
 	}
-	cast, err := h.casts.New(r.Context(), d.ID, c, body.Ref)
+	if h.files == nil {
+		fail(w, http.StatusServiceUnavailable, errors.New("this hub has no files site"))
+		return
+	}
+	u, err := filesURL(h.files, body.URL)
 	if err != nil {
-		code := http.StatusBadGateway
-		switch {
-		case errors.Is(err, errNotAllowed):
-			code = http.StatusForbidden
-		case strings.Contains(err.Error(), "not an object key"):
-			code = http.StatusBadRequest
-		}
-		fail(w, code, err)
+		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	h.queues.Push(d.ID, Event{Kind: "cast", Cast: cast.ID, Title: cast.Title, Type: cast.Type})
-	reply(w, http.StatusOK, map[string]string{"cast": cast.ID, "title": cast.Title})
+	s, ok := h.target(w, r, c)
+	if !ok {
+		return
+	}
+	title := play.Title(u)
+	if t, err := url.PathUnescape(title); err == nil {
+		title = t
+	}
+	h.queues.Push(s.ID, Event{Kind: "cast", URL: u, Title: title, Type: play.Type(u)})
+	reply(w, http.StatusOK, map[string]string{"url": u, "title": title})
 }
 
 var controls = map[string]bool{"toggle": true, "skip": true, "seekTo": true, "seekFraction": true, "chapter": true, "stop": true}
 
-func (h *Hub) control(w http.ResponseWriter, r *http.Request, c Caster) {
+func (h *Hub) control(w http.ResponseWriter, r *http.Request, c Caller) {
 	var body struct {
 		Action string  `json:"action"`
 		Value  float64 `json:"value"`
@@ -464,12 +381,41 @@ func (h *Hub) control(w http.ResponseWriter, r *http.Request, c Caster) {
 		fail(w, http.StatusBadRequest, fmt.Errorf("unknown control %q", body.Action))
 		return
 	}
-	d, ok := h.store.Get(c.User, r.PathValue("id"))
+	s, ok := h.target(w, r, c)
 	if !ok {
-		fail(w, http.StatusNotFound, errNoDevice)
 		return
 	}
-	h.queues.Push(d.ID, Event{Kind: "control", Action: body.Action, Value: body.Value})
+	h.queues.Push(s.ID, Event{Kind: "control", Action: body.Action, Value: body.Value})
+	reply(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *Hub) rename(w http.ResponseWriter, r *http.Request, c Caller) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	name, err := screenName(body.Name)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	s, err := h.store.Update(c.User, r.PathValue("id"), func(s *Screen) { s.Name = name })
+	if err != nil {
+		fail(w, http.StatusNotFound, err)
+		return
+	}
+	reply(w, http.StatusOK, h.view(s, c))
+}
+
+func (h *Hub) remove(w http.ResponseWriter, r *http.Request, c Caller) {
+	id := r.PathValue("id")
+	if err := h.drop(c.User, id); err != nil {
+		fail(w, http.StatusNotFound, err)
+		return
+	}
+	log.Printf("%s removed screen %s", c.User, id)
 	reply(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -482,12 +428,12 @@ func inGroup(groups, want string) bool {
 	return false
 }
 
-func (h *Hub) mayADB(c Caster) bool {
+func (h *Hub) mayADB(c Caller) bool {
 	return h.adbGroup == "" || inGroup(c.Groups, h.adbGroup)
 }
 
-func (h *Hub) adbFor(w http.ResponseWriter, r *http.Request) (*link, bool) {
-	if !h.mayADB(Caster{Groups: r.Header.Get("Remote-Groups")}) {
+func (h *Hub) adbFor(w http.ResponseWriter, r *http.Request, c Caller) (*link, bool) {
+	if !h.mayADB(c) {
 		fail(w, http.StatusForbidden, errors.New("adb remotes need the "+h.adbGroup+" group"))
 		return nil, false
 	}
@@ -498,8 +444,8 @@ func (h *Hub) adbFor(w http.ResponseWriter, r *http.Request) (*link, bool) {
 	return l, ok
 }
 
-func (h *Hub) adbPress(w http.ResponseWriter, r *http.Request, c Caster) {
-	l, ok := h.adbFor(w, r)
+func (h *Hub) adbPress(w http.ResponseWriter, r *http.Request, c Caller) {
+	l, ok := h.adbFor(w, r, c)
 	if !ok {
 		return
 	}
@@ -531,18 +477,19 @@ func (h *Hub) adbPress(w http.ResponseWriter, r *http.Request, c Caster) {
 	reply(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (h *Hub) adbText(w http.ResponseWriter, r *http.Request, c Caster) {
-	l, ok := h.adbFor(w, r)
+func (h *Hub) adbText(w http.ResponseWriter, r *http.Request, c Caller) {
+	l, ok := h.adbFor(w, r, c)
 	if !ok {
 		return
 	}
 	var body struct {
 		Text string `json:"text"`
 	}
-	if !decode(w, r, &body) || body.Text == "" {
-		if body.Text == "" {
-			fail(w, http.StatusBadRequest, errors.New("no text"))
-		}
+	if !decode(w, r, &body) {
+		return
+	}
+	if body.Text == "" {
+		fail(w, http.StatusBadRequest, errors.New("no text"))
 		return
 	}
 	if _, err := tv.InputTextArg(body.Text); err != nil {

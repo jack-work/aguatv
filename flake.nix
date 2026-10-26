@@ -163,7 +163,7 @@
           pname = "aguatv-cli";
           inherit version;
           src = ./cli;
-          vendorHash = "sha256-yKJGYI9eiOwdLazThjlYs1HSh/dwL35NvCYp1PLlOdE=";
+          vendorHash = "sha256-TUbaUoqDZoQTkcOMtoE/FlAiqkWN+x49JeGkDguh2UU=";
           ldflags = [
             "-s"
             "-w"

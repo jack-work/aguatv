@@ -1,11 +1,11 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,78 +28,45 @@ func (a adbTargets) Set(v string) error {
 	return nil
 }
 
-type stubAuthz map[string]bool
-
-func (s stubAuthz) CanRead(_ context.Context, by Caster, key string) (bool, error) {
-	return s[by.User+":"+key] || s[by.User+":*"], nil
-}
-
 func main() {
 	targets := adbTargets{}
-	var (
-		listen, site, state, public, authz, s3Endpoint, s3Bucket, s3Region, adbBin, jar, version string
-		insecure                                                                                 bool
-	)
+	var listen, site, state, files, cspDir, adbGroup, adbBin, jar, version string
+	var insecure bool
 	flag.StringVar(&listen, "listen", "", "address to listen on when systemd passes no socket")
-	flag.StringVar(&site, "site", "", "directory holding the pages")
-	flag.StringVar(&state, "state", os.Getenv("STATE_DIRECTORY"), "directory for devices.json")
-	flag.StringVar(&public, "public", "", "the hub's public URL, used in link codes")
-	flag.StringVar(&authz, "files-authz", "", "files authorizer: unix:<socket>[:<path>] or a URL")
-	flag.StringVar(&s3Endpoint, "s3-endpoint", "", "S3 endpoint for casts")
-	flag.StringVar(&s3Bucket, "s3-bucket", "", "S3 bucket for casts")
-	flag.StringVar(&s3Region, "s3-region", "garage", "S3 region")
+	flag.StringVar(&site, "site", "", "directory holding the web app")
+	flag.StringVar(&cspDir, "csp", "", "directory of <page>.csp script hashes (default: -site)")
+	flag.StringVar(&state, "state", os.Getenv("STATE_DIRECTORY"), "directory for screens.json")
+	flag.StringVar(&files, "files", "", "origin screens may be cast from, like https://files.example.com")
 	flag.Var(targets, "adb", "an adb remote, name=host:port (repeatable)")
-	var adbGroup string
 	flag.StringVar(&adbGroup, "adb-group", "", "if set, only members of this Remote-Groups group may see or drive adb remotes")
 	flag.StringVar(&adbBin, "adb-bin", defaultAdb, "adb binary")
 	flag.StringVar(&jar, "jar", defaultJar, "scrcpy-server jar")
 	flag.StringVar(&version, "scrcpy-version", scrcpyVersion, "version of that jar")
-	flag.BoolVar(&insecure, "insecure-cookies", false, "send device cookies without Secure, for a plain-HTTP test hub")
+	flag.BoolVar(&insecure, "insecure-cookies", false, "send screen cookies without Secure, for a plain-HTTP test hub")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: aguatv-hub -site <dir> -public <url> -state <dir> [-files-authz … -s3-endpoint … -s3-bucket …] [-adb name=host:port]\n\nLinks screens, casts to them and drives adb TVs. It trusts Remote-User: run it behind a login proxy.\nS3 keys come from the credentials s3-key-id and s3-secret ($CREDENTIALS_DIRECTORY).\n\n")
+		fmt.Fprintf(os.Stderr, "usage: aguatv-hub -site <dir> -state <dir> -files <origin> [-adb name=host:port]\n\nKeeps a person's screens, casts files to them and drives adb TVs.\nIt trusts Remote-User and Remote-Groups: run it behind a login proxy that sets them.\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	if site == "" || public == "" || state == "" {
+	if site == "" || state == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
+	if cspDir == "" {
+		cspDir = site
+	}
+	var filesOrigin *url.URL
+	if files != "" {
+		u, err := url.Parse(files)
+		if err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" || strings.Trim(u.Path, "/") != "" {
+			log.Fatalf("-files %q is not an origin like https://files.example.com", files)
+		}
+		filesOrigin = &url.URL{Scheme: u.Scheme, Host: u.Host}
+	}
 
-	store, err := OpenStore(filepath.Join(state, "devices.json"))
+	store, err := OpenStore(filepath.Join(state, "screens.json"))
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	var a Authorizer = stubAuthz{}
-	if authz != "" {
-		fa, err := NewFilesAuthz(authz)
-		if err != nil {
-			log.Fatal(err)
-		}
-		a = fa
-	} else if v := os.Getenv("AGUATV_HUB_STUB_GRANTS"); v != "" {
-		s := stubAuthz{}
-		for _, g := range strings.Fields(v) {
-			s[g] = true
-		}
-		a = s
-		log.Printf("files authorizer: local stub with %d grants", len(s))
-	}
-
-	var src Source = noSource{}
-	if s3Endpoint != "" {
-		id, err := readCredential("s3-key-id")
-		if err != nil {
-			log.Fatal(err)
-		}
-		secret, err := readCredential("s3-secret")
-		if err != nil {
-			log.Fatal(err)
-		}
-		src = &S3{Endpoint: s3Endpoint, Bucket: s3Bucket, Region: s3Region, KeyID: id, Secret: secret, Client: &http.Client{}}
-	} else if dir := os.Getenv("AGUATV_HUB_STUB_DIR"); dir != "" {
-		src = dirSource(dir)
-		log.Printf("cast source: local directory %s", dir)
 	}
 
 	remotes := map[string]*link{}
@@ -115,13 +82,13 @@ func main() {
 		}}
 	}
 
-	h := NewHub(store, NewCasts(a), src, remotes, http.FileServer(http.Dir(site)), public, !insecure)
-	h.adbGroup = adbGroup
+	h := NewHub(store, filesOrigin, remotes, os.DirFS(site), !insecure)
+	h.adbGroup, h.cspDir = adbGroup, cspDir
 	ln, err := listener(listen)
 	if err != nil {
 		log.Fatal(err)
 	}
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
-	log.Printf("hub at %s, %d adb remotes", public, len(remotes))
+	log.Printf("hub up, %d adb remotes", len(remotes))
 	log.Fatal(srv.Serve(ln))
 }

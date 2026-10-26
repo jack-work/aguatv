@@ -1,41 +1,36 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
-
-type grants map[string]bool
-
-func (g grants) CanRead(_ context.Context, by Caster, key string) (bool, error) {
-	return g[by.User+":"+key], nil
-}
 
 type th struct {
 	t     *testing.T
 	h     *Hub
 	store *Store
-	g     grants
 	dir   string
+	jar   map[string]*http.Cookie
 }
 
 func testHub(t *testing.T, adb map[string]*link) *th {
 	dir := t.TempDir()
-	store, err := OpenStore(filepath.Join(dir, "devices.json"))
+	store, err := OpenStore(filepath.Join(dir, "screens.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := grants{}
-	h := NewHub(store, NewCasts(g), dirSource("testdata/files"), adb, http.NotFoundHandler(), "https://tv.example.com", true)
+	site := (fstest.MapFS{"index.html": {Data: []byte("<!doctype html>home")}, "app.js": {Data: []byte("1")}})
+	h := NewHub(store, &url.URL{Scheme: "https", Host: "files.example.com"}, adb, site, true)
 	h.wait = 50 * time.Millisecond
-	return &th{t: t, h: h, store: store, g: g, dir: dir}
+	return &th{t: t, h: h, store: store, dir: dir, jar: map[string]*http.Cookie{}}
 }
 
 func (x *th) req(method, path, body string, set func(*http.Request)) *httptest.ResponseRecorder {
@@ -51,20 +46,19 @@ func (x *th) req(method, path, body string, set func(*http.Request)) *httptest.R
 	return w
 }
 
-func (x *th) do(user, method, path, body string) *httptest.ResponseRecorder {
+func (x *th) as(user, screen, method, path, body string) *httptest.ResponseRecorder {
 	return x.req(method, path, body, func(r *http.Request) {
 		if user != "" {
 			r.Header.Set("Remote-User", user)
 		}
+		if c := x.jar[screen]; c != nil {
+			r.AddCookie(c)
+		}
 	})
 }
 
-func (x *th) dev(cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
-	return x.req(method, path, body, func(r *http.Request) {
-		if cookie != nil {
-			r.AddCookie(cookie)
-		}
-	})
+func (x *th) do(user, method, path, body string) *httptest.ResponseRecorder {
+	return x.as(user, user+"/remote", method, path, body)
 }
 
 func jsonOf(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
@@ -76,236 +70,272 @@ func jsonOf(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	return m
 }
 
-func (x *th) link(user, kind, name string) *http.Cookie {
+func (x *th) register(user, label string, remote bool) string {
 	x.t.Helper()
-	w := x.dev(nil, http.MethodPost, "/device/start", `{"kind":"`+kind+`","name":"`+name+`"}`)
+	body, _ := json.Marshal(map[string]any{"name": label, "remote": remote})
+	w := x.as(user, "", http.MethodPost, "/api/me", string(body))
 	if w.Code != 200 {
-		x.t.Fatalf("start %d %s", w.Code, w.Body)
-	}
-	s := jsonOf(x.t, w)
-	code, claim := s["code"].(string), s["claim"].(string)
-	if w := x.do(user, http.MethodPost, "/api/link", `{"code":"`+code+`"}`); w.Code != 200 {
-		x.t.Fatalf("approve %d %s", w.Code, w.Body)
-	}
-	w = x.dev(nil, http.MethodPost, "/device/claim", `{"code":"`+code+`","claim":"`+claim+`"}`)
-	if w.Code != 200 {
-		x.t.Fatalf("claim %d %s", w.Code, w.Body)
+		x.t.Fatalf("register: %d %s", w.Code, w.Body)
 	}
 	for _, c := range w.Result().Cookies() {
 		if c.Name == cookieName {
-			if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode {
-				x.t.Fatalf("cookie is not HttpOnly, Secure and SameSite=Strict: %+v", c)
-			}
-			return c
+			x.jar[user+"/"+label] = c
 		}
 	}
-	x.t.Fatal("no device cookie")
-	return nil
+	if x.jar[user+"/"+label] == nil {
+		x.t.Fatal("no screen cookie")
+	}
+	return jsonOf(x.t, w)["id"].(string)
 }
 
-func TestLinkingEndToEnd(t *testing.T) {
-	x := testHub(t, nil)
-	c := x.link("alice", "tv", "Living room")
-	w := x.dev(c, http.MethodGet, "/device/whoami", "")
-	if w.Code != 200 || jsonOf(t, w)["name"] != "Living room" {
-		t.Fatalf("%d %s", w.Code, w.Body)
+func (x *th) next(user, screen string) map[string]any {
+	x.t.Helper()
+	w := x.as(user, screen, http.MethodGet, "/api/me/next", "")
+	if w.Code == http.StatusNoContent {
+		return nil
 	}
-	w = x.do("alice", http.MethodGet, "/api/devices", "")
-	if !strings.Contains(w.Body.String(), "Living room") {
-		t.Fatalf("alice's list: %s", w.Body)
+	if w.Code != 200 {
+		x.t.Fatalf("next: %d %s", w.Code, w.Body)
 	}
-	if w := x.do("bob", http.MethodGet, "/api/devices", ""); strings.Contains(w.Body.String(), "Living room") {
-		t.Fatalf("bob sees alice's device: %s", w.Body)
-	}
+	return jsonOf(x.t, w)
 }
 
-func TestClaimWaitsThenIsSingleUse(t *testing.T) {
+func TestEverythingNeedsALogin(t *testing.T) {
 	x := testHub(t, nil)
-	s := jsonOf(t, x.dev(nil, http.MethodPost, "/device/start", `{"kind":"browser"}`))
-	code, claim := s["code"].(string), s["claim"].(string)
-	if w := x.dev(nil, http.MethodPost, "/device/claim", `{"code":"`+code+`","claim":"`+claim+`"}`); w.Code != 202 {
-		t.Fatalf("before approval: %d", w.Code)
-	}
-	if w := x.dev(nil, http.MethodPost, "/device/claim", `{"code":"`+code+`","claim":"wrong"}`); w.Code != 410 {
-		t.Fatalf("wrong claim secret: %d", w.Code)
-	}
-	x.do("alice", http.MethodPost, "/api/link", `{"code":"`+strings.ToLower(code)+`"}`)
-	if w := x.dev(nil, http.MethodPost, "/device/claim", `{"code":"`+code+`","claim":"`+claim+`"}`); w.Code != 200 {
-		t.Fatalf("claim: %d", w.Code)
-	}
-	if w := x.dev(nil, http.MethodPost, "/device/claim", `{"code":"`+code+`","claim":"`+claim+`"}`); w.Code != 410 {
-		t.Fatalf("second claim: %d", w.Code)
-	}
-	if w := x.do("bob", http.MethodPost, "/api/link", `{"code":"`+code+`"}`); w.Code != 404 {
-		t.Fatalf("spent code approved again: %d", w.Code)
+	for _, p := range []string{"/", "/app.js", "/api/me", "/api/screens", "/api/me/next"} {
+		if w := x.as("", "", http.MethodGet, p, ""); w.Code != 401 {
+			t.Errorf("%s without a login: %d", p, w.Code)
+		}
 	}
 }
 
-func TestTheTokenIsNotStoredInTheClear(t *testing.T) {
+func TestRegisteringSetsAStrictCookieAndKeepsOnlyItsHash(t *testing.T) {
 	x := testHub(t, nil)
-	c := x.link("alice", "tv", "TV")
-	b, err := os.ReadFile(filepath.Join(x.dir, "devices.json"))
+	x.register("alice", "den", false)
+	c := x.jar["alice/den"]
+	if !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.MaxAge <= 0 {
+		t.Fatalf("cookie %+v", c)
+	}
+	b, err := os.ReadFile(filepath.Join(x.dir, "screens.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(b), c.Value) || !strings.Contains(string(b), hashToken(c.Value)) {
-		t.Fatalf("devices.json: %s", b)
+		t.Fatalf("store holds the token in the clear, or not its hash: %s", b)
 	}
-	fi, _ := os.Stat(filepath.Join(x.dir, "devices.json"))
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", fi.Mode())
-	}
-}
-
-func TestDevicesAndPeopleCannotUseEachOthersDoors(t *testing.T) {
-	x := testHub(t, nil)
-	c := x.link("alice", "tv", "TV")
-	if w := x.dev(c, http.MethodGet, "/api/devices", ""); w.Code != 401 {
-		t.Fatalf("device cookie on a person's endpoint: %d", w.Code)
-	}
-	if w := x.do("alice", http.MethodGet, "/device/next", ""); w.Code != 401 {
-		t.Fatalf("person on a device endpoint: %d", w.Code)
-	}
-	if w := x.do("", http.MethodGet, "/tvlogin", ""); w.Code != 401 {
-		t.Fatalf("tvlogin without a login: %d", w.Code)
+	me := jsonOf(t, x.as("alice", "alice/den", http.MethodGet, "/api/me", ""))
+	if s, _ := me["screen"].(map[string]any); s == nil || s["name"] != "den" || s["remote"] != false {
+		t.Fatalf("me: %v", me)
 	}
 }
 
-func TestOnlyTheOwnerCanRenameCastOrUnlink(t *testing.T) {
+func TestRegisteringAgainUpdatesTheSameScreen(t *testing.T) {
 	x := testHub(t, nil)
-	x.link("alice", "tv", "TV")
-	id := x.store.Owned("alice")[0].ID
-	x.g["bob:films/clip.mp4"] = true
-	for _, tc := range []struct{ method, path, body string }{
-		{http.MethodPost, "/api/devices/" + id + "/rename", `{"name":"mine"}`},
-		{http.MethodPost, "/api/devices/" + id + "/cast", `{"ref":"films/clip.mp4"}`},
-		{http.MethodPost, "/api/devices/" + id + "/control", `{"action":"toggle"}`},
-		{http.MethodDelete, "/api/devices/" + id, ""},
-	} {
-		if w := x.do("bob", tc.method, tc.path, tc.body); w.Code != 404 {
-			t.Errorf("bob %s %s: %d", tc.method, tc.path, w.Code)
+	id := x.register("alice", "den", false)
+	w := x.as("alice", "alice/den", http.MethodPost, "/api/me", `{"name":"study","remote":true}`)
+	if w.Code != 200 || jsonOf(t, w)["id"] != id || len(x.store.Owned("alice")) != 1 {
+		t.Fatalf("%d %s, %d screens", w.Code, w.Body, len(x.store.Owned("alice")))
+	}
+}
+
+func TestAScreenCookieIsWorthlessUnderAnotherLogin(t *testing.T) {
+	x := testHub(t, nil)
+	x.register("alice", "remote", true)
+	bob := x.register("bob", "tv", false)
+	x.jar["bob/stolen"] = x.jar["alice/remote"]
+	if w := x.as("bob", "bob/stolen", http.MethodPost, "/api/screens/"+bob+"/cast", `{"url":"films/a.mp4"}`); w.Code != 403 {
+		t.Fatalf("alice's remote cookie under bob's login: %d", w.Code)
+	}
+	if w := x.as("bob", "bob/stolen", http.MethodGet, "/api/me/next", ""); w.Code != 401 {
+		t.Fatalf("alice's cookie made bob a screen: %d", w.Code)
+	}
+}
+
+func TestOnlyARemoteScreenMayCastControlRenameOrRemove(t *testing.T) {
+	x := testHub(t, nil)
+	tv := x.register("alice", "tv", false)
+	calls := []struct{ method, path, body string }{
+		{http.MethodPost, "/api/screens/" + tv + "/cast", `{"url":"films/a.mp4"}`},
+		{http.MethodPost, "/api/screens/" + tv + "/control", `{"action":"toggle"}`},
+		{http.MethodPost, "/api/screens/" + tv + "/name", `{"name":"x"}`},
+		{http.MethodDelete, "/api/screens/" + tv, ""},
+	}
+	for _, screen := range []string{"", "alice/tv"} {
+		for _, c := range calls {
+			if w := x.as("alice", screen, c.method, c.path, c.body); w.Code != 403 {
+				t.Errorf("%s %s from %q: %d", c.method, c.path, screen, w.Code)
+			}
 		}
+	}
+	x.register("alice", "remote", true)
+	for _, c := range calls {
+		if w := x.do("alice", c.method, c.path, c.body); w.Code != 200 {
+			t.Errorf("%s %s from a remote: %d %s", c.method, c.path, w.Code, w.Body)
+		}
+	}
+}
+
+func TestARemoteReachesOnlyItsOwnersScreens(t *testing.T) {
+	x := testHub(t, nil)
+	bob := x.register("bob", "tv", false)
+	x.register("alice", "remote", true)
+	if w := x.do("alice", http.MethodPost, "/api/screens/"+bob+"/cast", `{"url":"films/a.mp4"}`); w.Code != 404 {
+		t.Fatalf("alice cast to bob's screen: %d", w.Code)
+	}
+	if e := x.next("bob", "bob/tv"); e != nil {
+		t.Fatalf("bob's screen got %v", e)
+	}
+	list := jsonOf(t, x.do("alice", http.MethodGet, "/api/screens", ""))
+	if n := len(list["screens"].([]any)); n != 1 {
+		t.Fatalf("alice sees %d screens", n)
+	}
+}
+
+func TestACastIsAFilesURLDeliveredToTheScreen(t *testing.T) {
+	x := testHub(t, nil)
+	tv := x.register("alice", "tv", false)
+	x.register("alice", "remote", true)
+	for ref, want := range map[string]string{
+		"films/A Film (1999).mkv":                   "https://files.example.com/films/A%20Film%20%281999%29.mkv",
+		"/films/a.mp4":                              "https://files.example.com/films/a.mp4",
+		"https://files.example.com/films/a%20b.mp4": "https://files.example.com/films/a%20b.mp4",
+	} {
+		body, _ := json.Marshal(map[string]string{"url": ref})
+		if w := x.do("alice", http.MethodPost, "/api/screens/"+tv+"/cast", string(body)); w.Code != 200 {
+			t.Fatalf("%q: %d %s", ref, w.Code, w.Body)
+		}
+		e := x.next("alice", "alice/tv")
+		if e["kind"] != "cast" || e["url"] != want {
+			t.Fatalf("%q: got %v, want %s", ref, e, want)
+		}
+	}
+}
+
+func TestACastRefusesAnythingButAFileOnTheFilesSite(t *testing.T) {
+	x := testHub(t, nil)
+	tv := x.register("alice", "tv", false)
+	x.register("alice", "remote", true)
+	for _, ref := range []string{
+		"https://evil.example.com/films/a.mp4",
+		"http://files.example.com/films/a.mp4",
+		"https://user@files.example.com/films/a.mp4",
+		"https://files.example.com/films/a.mp4?x-amz-signature=1",
+		"https://files.example.com.evil.com/a.mp4",
+		"javascript:alert(1)",
+		"films/../secrets/a.mp4",
+		"films/",
+		"",
+		"films/a\nb.mp4",
+	} {
+		body, _ := json.Marshal(map[string]string{"url": ref})
+		if w := x.do("alice", http.MethodPost, "/api/screens/"+tv+"/cast", string(body)); w.Code != 400 {
+			t.Errorf("%q: %d %s", ref, w.Code, w.Body)
+		}
+	}
+	if e := x.next("alice", "alice/tv"); e != nil {
+		t.Fatalf("a refused cast reached the screen: %v", e)
+	}
+}
+
+func TestControlsAreAClosedSet(t *testing.T) {
+	x := testHub(t, nil)
+	tv := x.register("alice", "tv", false)
+	x.register("alice", "remote", true)
+	if w := x.do("alice", http.MethodPost, "/api/screens/"+tv+"/control", `{"action":"eval"}`); w.Code != 400 {
+		t.Fatalf("got %d", w.Code)
+	}
+	if w := x.do("alice", http.MethodPost, "/api/screens/"+tv+"/control", `{"action":"seekFraction","value":0.5}`); w.Code != 200 {
+		t.Fatalf("got %d", w.Code)
+	}
+	if e := x.next("alice", "alice/tv"); e["action"] != "seekFraction" || e["value"] != 0.5 {
+		t.Fatalf("got %v", e)
+	}
+}
+
+func TestAScreenReportsItsPlayback(t *testing.T) {
+	x := testHub(t, nil)
+	x.register("alice", "tv", false)
+	x.register("alice", "remote", true)
+	if w := x.as("alice", "alice/tv", http.MethodPost, "/api/me/state", `{"title":"a.mp4","position":3,"duration":10,"playing":true}`); w.Code != 204 {
+		t.Fatalf("got %d", w.Code)
+	}
+	if !strings.Contains(x.do("alice", http.MethodGet, "/api/screens", "").Body.String(), `"title":"a.mp4"`) {
+		t.Fatal("state not listed")
+	}
+}
+
+func TestRemovingAScreenTellsItAndLocksItOut(t *testing.T) {
+	x := testHub(t, nil)
+	tv := x.register("alice", "tv", false)
+	x.register("alice", "remote", true)
+	if w := x.do("alice", http.MethodDelete, "/api/screens/"+tv, ""); w.Code != 200 {
+		t.Fatalf("got %d", w.Code)
+	}
+	if w := x.as("alice", "alice/tv", http.MethodGet, "/api/me/next", ""); w.Code != 401 {
+		t.Fatalf("removed screen still listens: %d", w.Code)
+	}
+}
+
+func TestForgettingThisBrowserClearsTheCookie(t *testing.T) {
+	x := testHub(t, nil)
+	x.register("alice", "den", false)
+	w := x.as("alice", "alice/den", http.MethodDelete, "/api/me", "")
+	if w.Code != 200 || len(x.store.Owned("alice")) != 0 {
+		t.Fatalf("%d, %d screens", w.Code, len(x.store.Owned("alice")))
+	}
+	c := w.Result().Cookies()
+	if len(c) != 1 || c[0].Name != cookieName || c[0].MaxAge >= 0 {
+		t.Fatalf("cookie not cleared: %v", c)
+	}
+}
+
+func TestAnIdleScreenExpires(t *testing.T) {
+	x := testHub(t, nil)
+	x.register("alice", "den", false)
+	x.store.now = func() time.Time { return time.Now().Add(91 * 24 * time.Hour) }
+	if w := x.as("alice", "alice/den", http.MethodGet, "/api/me/next", ""); w.Code != 401 {
+		t.Fatalf("got %d", w.Code)
 	}
 }
 
 func TestCrossSitePostsAreRefused(t *testing.T) {
 	x := testHub(t, nil)
-	w := x.req(http.MethodPost, "/api/link", `{"code":"x"}`, func(r *http.Request) {
+	tv := x.register("alice", "tv", false)
+	x.register("alice", "remote", true)
+	w := x.req(http.MethodPost, "/api/screens/"+tv+"/control", `{"action":"stop"}`, func(r *http.Request) {
 		r.Header.Set("Remote-User", "alice")
 		r.Header.Set("Sec-Fetch-Site", "cross-site")
+		r.AddCookie(x.jar["alice/remote"])
 	})
 	if w.Code != 403 {
 		t.Fatalf("cross-site: %d", w.Code)
 	}
-	w = x.req(http.MethodPost, "/device/start", `{}`, func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") })
+	w = x.req(http.MethodPost, "/api/screens/"+tv+"/control", "action=stop", func(r *http.Request) {
+		r.Header.Set("Remote-User", "alice")
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(x.jar["alice/remote"])
+	})
 	if w.Code != 403 {
 		t.Fatalf("form post: %d", w.Code)
 	}
 }
 
-func TestCastIsCheckedAgainstTheCallersRightsAndStreamsWithRanges(t *testing.T) {
+func TestThePageCarriesACSPThatAllowsOnlyFilesMedia(t *testing.T) {
 	x := testHub(t, nil)
-	c := x.link("alice", "tv", "TV")
-	other := x.link("alice", "browser", "Laptop")
-	id := ""
-	for _, d := range x.store.Owned("alice") {
-		if d.Kind == "tv" {
-			id = d.ID
-		}
+	w := x.as("alice", "", http.MethodGet, "/", "")
+	csp := w.Header().Get("Content-Security-Policy")
+	if w.Code != 200 || !strings.Contains(csp, "media-src 'self' https://files.example.com") || !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "connect-src 'self';") {
+		t.Fatalf("%d %q", w.Code, csp)
 	}
-	if w := x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ref":"films/clip.mp4"}`); w.Code != 403 {
-		t.Fatalf("cast without a grant: %d %s", w.Code, w.Body)
-	}
-	if w := x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ref":"../etc/passwd"}`); w.Code != 400 {
-		t.Fatalf("a path that leaves the bucket: %d", w.Code)
-	}
-	x.g["alice:films/clip.mp4"] = true
-	w := x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ref":"https://files.example.com/films/clip.mp4"}`)
-	if w.Code != 200 {
-		t.Fatalf("cast: %d %s", w.Code, w.Body)
-	}
-	cast := jsonOf(t, w)["cast"].(string)
-	ev := jsonOf(t, x.dev(c, http.MethodGet, "/device/next", ""))
-	if ev["kind"] != "cast" || ev["cast"] != cast || ev["type"] != "video/mp4" {
-		t.Fatalf("event %v", ev)
-	}
-	w = x.req(http.MethodGet, "/stream?cast="+cast, "", func(r *http.Request) {
-		r.AddCookie(c)
-		r.Header.Set("Range", "bytes=10-13")
-	})
-	if w.Code != 206 || w.Body.String() != "abcd" || w.Header().Get("Content-Range") != "bytes 10-13/20" {
-		t.Fatalf("range: %d %q %v", w.Code, w.Body, w.Header())
-	}
-	if w := x.dev(other, http.MethodGet, "/stream?cast="+cast, ""); w.Code != 404 {
-		t.Fatalf("another device streamed it: %d", w.Code)
-	}
-}
-
-func TestARevokedGrantStopsTheStream(t *testing.T) {
-	x := testHub(t, nil)
-	c := x.link("alice", "tv", "TV")
-	id := x.store.Owned("alice")[0].ID
-	x.g["alice:films/clip.mp4"] = true
-	cast := jsonOf(t, x.do("alice", http.MethodPost, "/api/devices/"+id+"/cast", `{"ref":"films/clip.mp4"}`))["cast"].(string)
-	delete(x.g, "alice:films/clip.mp4")
-	later := time.Now().Add(2 * time.Minute)
-	x.h.casts.now = func() time.Time { return later }
-	if w := x.dev(c, http.MethodGet, "/stream?cast="+cast, ""); w.Code != 403 {
-		t.Fatalf("after the grant went: %d", w.Code)
-	}
-}
-
-func TestUnlinkRevokesAtOnce(t *testing.T) {
-	x := testHub(t, nil)
-	c := x.link("alice", "tv", "TV")
-	id := x.store.Owned("alice")[0].ID
-	if w := x.do("alice", http.MethodDelete, "/api/devices/"+id, ""); w.Code != 200 {
-		t.Fatalf("unlink %d", w.Code)
-	}
-	if w := x.dev(c, http.MethodGet, "/device/next", ""); w.Code != 401 {
-		t.Fatalf("after unlink: %d", w.Code)
-	}
-}
-
-func TestATokenExpiresWhenUnused(t *testing.T) {
-	x := testHub(t, nil)
-	c := x.link("alice", "tv", "TV")
-	later := time.Now().Add(91 * 24 * time.Hour)
-	x.store.now = func() time.Time { return later }
-	if w := x.dev(c, http.MethodGet, "/device/whoami", ""); w.Code != 401 {
-		t.Fatalf("expired token: %d", w.Code)
+	if w := x.as("alice", "", http.MethodGet, "/index.html", ""); w.Code != 404 {
+		t.Fatalf("the page is reachable without its CSP: %d", w.Code)
 	}
 }
 
 func TestLongPollTimesOutEmpty(t *testing.T) {
 	x := testHub(t, nil)
-	c := x.link("alice", "tv", "TV")
-	if w := x.dev(c, http.MethodGet, "/device/next", ""); w.Code != 204 {
-		t.Fatalf("idle poll: %d", w.Code)
-	}
-}
-
-func TestStartIsRateLimitedPerAddress(t *testing.T) {
-	x := testHub(t, nil)
-	codes := 0
-	for i := 0; i < 8; i++ {
-		if x.dev(nil, http.MethodPost, "/device/start", `{}`).Code == 200 {
-			codes++
-		}
-	}
-	if codes != 5 {
-		t.Fatalf("got %d codes from one address in a minute", codes)
-	}
-}
-
-func TestQROnlyForAPendingCode(t *testing.T) {
-	x := testHub(t, nil)
-	if w := x.dev(nil, http.MethodGet, "/device/qr?code=AAAAAAA", ""); w.Code != 404 {
-		t.Fatalf("unknown code: %d", w.Code)
-	}
-	code := jsonOf(t, x.dev(nil, http.MethodPost, "/device/start", `{}`))["code"].(string)
-	w := x.dev(nil, http.MethodGet, "/device/qr?code="+code, "")
-	if w.Code != 200 || w.Header().Get("Content-Type") != "image/png" {
-		t.Fatalf("qr: %d %v", w.Code, w.Header())
+	x.register("alice", "den", false)
+	if e := x.next("alice", "alice/den"); e != nil {
+		t.Fatalf("got %v", e)
 	}
 }

@@ -8,7 +8,7 @@ import (
 
 type Event struct {
 	Kind   string  `json:"kind"`
-	Cast   string  `json:"cast,omitempty"`
+	URL    string  `json:"url,omitempty"`
 	Title  string  `json:"title,omitempty"`
 	Type   string  `json:"type,omitempty"`
 	Action string  `json:"action,omitempty"`
@@ -43,7 +43,7 @@ func (q *Queues) Push(id string, e Event) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	d := q.get(id)
-	if e.Kind == "cast" || e.Kind == "unlinked" {
+	if e.Kind == "cast" {
 		kept := d.events[:0]
 		for _, old := range d.events {
 			if old.Kind != "control" {
