@@ -3,6 +3,8 @@ package play
 import (
 	"strings"
 	"testing"
+
+	"github.com/jack-work/aguatv/cli/internal/sandboxtest"
 )
 
 func TestHttpsLinksPlayAsTheyAre(t *testing.T) {
@@ -13,6 +15,9 @@ func TestHttpsLinksPlayAsTheyAre(t *testing.T) {
 }
 
 func TestOtherReferencesNeedAPresignCommand(t *testing.T) {
+	saved := shell
+	shell = sandboxtest.Sh(t)
+	defer func() { shell = saved }()
 	if _, err := Resolve("films/a.mp4", ""); err == nil || !strings.Contains(err.Error(), "AGUATV_PRESIGN") {
 		t.Fatalf("expected a pointer to AGUATV_PRESIGN, got %v", err)
 	}

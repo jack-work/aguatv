@@ -48,6 +48,8 @@ func Command(link, title, mime string) string {
 		" -t " + Quote(mime) + " -d " + Quote(link) + " --es title " + Quote(title) + " >/dev/null"
 }
 
+var shell = []string{"sh"}
+
 func Resolve(ref, presign string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -59,7 +61,7 @@ func Resolve(ref, presign string) (string, error) {
 		}
 		return "", errors.New("not an https URL, and AGUATV_PRESIGN is not set to turn it into one")
 	}
-	out, err := exec.Command("sh", "-c", presign+` "$1"`, "sh", ref).Output()
+	out, err := exec.Command(shell[0], append(shell[1:], "-c", presign+` "$1"`, "sh", ref)...).Output()
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
