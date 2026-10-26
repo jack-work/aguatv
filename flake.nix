@@ -167,6 +167,19 @@
           meta.mainProgram = "aguatv-remote";
         };
 
+        hub = pkgs.buildGoModule {
+          pname = "aguatv-hub";
+          inherit version;
+          src = ./cli;
+          vendorHash = "sha256-TUbaUoqDZoQTkcOMtoE/FlAiqkWN+x49JeGkDguh2UU=";
+          subPackages = [ "cmd/aguatv-hub" ];
+          ldflags = [
+            "-s"
+            "-w"
+          ];
+          meta.mainProgram = "aguatv-hub";
+        };
+
         remote = pkgs.runCommand "aguatv-remote-${version}" { meta.mainProgram = "aguatv-remote"; } ''
           mkdir -p $out/bin
           ln -s ${cli}/bin/aguatv-remote $out/bin/aguatv-remote
@@ -199,6 +212,7 @@
             web
             apk
             cli
+            hub
             remote
             player
             aguatv

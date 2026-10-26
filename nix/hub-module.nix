@@ -15,8 +15,8 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = own.cli;
-      defaultText = lib.literalExpression "aguatv.packages.\${system}.cli";
+      default = own.hub;
+      defaultText = lib.literalExpression "aguatv.packages.\${system}.hub";
     };
 
     site = lib.mkOption {
