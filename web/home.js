@@ -770,7 +770,7 @@
     if (!remoteSheet || !remoteSheet.shown || !remoteSheet.screen) return;
     var st = screenState(remoteSheet.screen.id);
     if (!st || !st.title) { remoteSheet.setNow({ title: 'nothing playing', position: 0, duration: 0, playing: false }); return; }
-    var pos = st.position + (st.playing && st.at ? (Date.now() - new Date(st.at).getTime()) / 1000 : 0);
+    var pos = st.position + (st.playing && st.at ? Date.now() / 1000 - st.at : 0);
     if (st.duration) pos = Math.min(pos, st.duration);
     remoteSheet.setNow({ title: st.title, position: pos, duration: st.duration || 0, playing: !!st.playing });
   }
