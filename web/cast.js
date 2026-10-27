@@ -8,6 +8,9 @@
   var item = null;
   var listeners = [];
   var saved = 0;
+  var view = 'gallery';
+  var pushed = false;
+  var viewers = [];
 
   function online() { return !window.host && !/[?&]preview\b/.test(location.search); }
 
@@ -56,7 +59,51 @@
     item = null;
     root.hidden = true;
     document.body.classList.remove('casting');
+    if (view !== 'gallery') setView('gallery', null, 'replace');
     tell();
+  }
+
+  function routeOf(search) {
+    var m = /[?&](w|a)=([^&]+)/.exec(search);
+    if (!m) return { view: 'gallery' };
+    return { view: m[1] === 'w' ? 'watch' : 'about', key: decodeURIComponent(m[2]) };
+  }
+
+  function urlFor(v, key) {
+    if (v === 'gallery') return location.pathname;
+    return location.pathname + '?' + (v === 'watch' ? 'w' : 'a') + '=' + encodeURIComponent(key);
+  }
+
+  function setView(v, key, how) {
+    view = v;
+    document.body.classList.toggle('watching', v === 'watch');
+    document.body.classList.toggle('away', v !== 'gallery');
+    if (how && online()) {
+      history[how + 'State']({ view: v, key: key }, '', urlFor(v, key));
+      if (how === 'push') pushed = v !== 'gallery';
+    }
+    if (v !== 'gallery') window.scrollTo(0, 0);
+    viewers.forEach(function (f) { f(v, key); });
+  }
+
+  function back() {
+    if (pushed && history.state && history.state.view === view) { history.back(); return; }
+    if (filo && item && item.kind !== 'audio' && !filo.docked) filo.dock(true);
+    setView('gallery', null, 'push');
+  }
+
+  function route(r) {
+    if (r.view === 'gallery') {
+      if (filo && !filo.docked && view === 'watch') filo.dock(true);
+      setView('gallery', null, null);
+      return Promise.resolve();
+    }
+    if (item && item.key === r.key) {
+      if (r.view === 'watch' && filo && filo.docked) filo.dock(false);
+      setView(r.view, r.key, null);
+      return Promise.resolve();
+    }
+    return play({ key: r.key }, r.view === 'about' ? 'about' : 'load');
   }
 
   function rungLabel(r) {
@@ -122,19 +169,25 @@
     source(item.original, value === 'auto' || !rung ? item.master : rung.playlist, at, playing);
   }
 
-  function show(it) {
+  function show(it, how) {
+    var wasDocked = !!(filo && filo.docked);
     if (filo) filo.detach();
     unload();
     item = it;
     root.hidden = false;
-    document.body.classList.add('casting');
+    var web = online();
+    var audio = it.kind === 'audio';
+    var docked = web && (audio || (wasDocked && how === 'cast'));
+    if (!web) document.body.classList.add('casting');
     if (it.poster) video.setAttribute('poster', it.poster);
     var chapters = (it.chapters || []).map(function (c) { return { start: c.start, title: c.title }; });
     var qualities = qualitiesOf(it);
     filo = window.zanni.filo.attach(video, {
       globalKeys: true,
       autohide: 4000,
-      fill: true,
+      fill: !web,
+      bar: web,
+      docked: docked,
       boil: false,
       kind: it.kind === 'audio' ? 'audio' : undefined,
       title: it.title,
@@ -147,12 +200,15 @@
     filo.focus();
     var resume = it.position && it.position.position > 5 && (!it.duration || it.position.position < it.duration - 10) ? it.position.position : 0;
     source(it.original, it.state === 'ready' ? it.master : null, resume, true);
+    if (web && how === 'about') setView('about', it.key, null);
+    else if (web && !docked) setView('watch', it.key, how === 'load' ? null : 'push');
     tell();
   }
 
-  function play(e) {
+  function play(e, how) {
+    how = how || (e.kind === 'cast' ? 'cast' : 'pick');
     if (e.url) {
-      show({ key: e.url, title: e.title || '', original: e.url, kind: 'video', state: 'none' });
+      show({ key: e.url, title: e.title || '', original: e.url, kind: 'video', state: 'none' }, how);
       return Promise.resolve();
     }
     return fetch(itemPath(e.key), { credentials: 'same-origin' }).then(function (r) {
@@ -162,7 +218,7 @@
       it.title = it.title || e.title || e.key;
       it.kind = it.kind || (/\.(mp4|m4v|mov|mkv|webm)$/i.test(e.key) ? 'video' : 'audio');
       if (e.poster) it.poster = e.poster;
-      show(it);
+      show(it, how);
     });
   }
 
@@ -185,6 +241,15 @@
   }
 
   root.addEventListener('filo:stop', close);
+  root.addEventListener('filo:expand', function () {
+    if (!item) return;
+    if (item.kind === 'audio') { setView('about', item.key, 'push'); return; }
+    filo.dock(false);
+    setView('watch', item.key, 'push');
+  });
+  video.addEventListener('enterpictureinpicture', function () { if (view === 'watch') back(); });
+  video.addEventListener('webkitpresentationmodechanged', function () { if (video.webkitPresentationMode === 'picture-in-picture' && view === 'watch') back(); });
+  window.addEventListener('popstate', function () { if (online()) route(routeOf(location.search)).catch(function () {}); });
   root.addEventListener('filo:seek', function () { tell(); savePosition(true); });
   root.addEventListener('filo:quality', function (e) { switchQuality(e.detail && e.detail.value); });
   video.addEventListener('play', tell);
@@ -193,7 +258,12 @@
   video.addEventListener('ended', function () { savePosition(true); stop(); });
   document.addEventListener('visibilitychange', function () { if (document.hidden) savePosition(true); });
   document.addEventListener('keydown', function (e) {
-    if (filo && e.key === 'Escape' && !filo.open) { e.preventDefault(); e.stopImmediatePropagation(); stop(); }
+    if (!filo || e.key !== 'Escape' || filo.open) return;
+    if (!online()) stop();
+    else if (view !== 'gallery') back();
+    else return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
   }, true);
 
   window.aguatvCast = {
@@ -202,6 +272,12 @@
     stop: stop,
     state: state,
     open: function () { return !!filo; },
+    covering: function () { return view !== 'gallery' || (!!filo && !filo.docked); },
+    item: function () { return item; },
+    view: function () { return view; },
+    back: back,
+    start: function () { return online() ? route(routeOf(location.search)) : Promise.resolve(); },
+    onView: function (f) { viewers.push(f); },
     onChange: function (f) { listeners.push(f); }
   };
 })();

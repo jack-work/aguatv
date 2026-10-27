@@ -207,7 +207,10 @@
   function mediaTiles(kind) {
     return state.library.filter(function (m) { return m.kind === kind; }).map(function (m) {
       var done = m.position && m.duration ? Math.min(1, m.position.position / m.duration) : 0;
-      return { kind: 'media', id: m.key, label: m.title, art: m.poster, media: m, done: done, open: function () { openDetails(); } };
+      return { kind: 'media', id: m.key, label: m.title, art: m.poster, media: m, done: done, open: function () {
+        if (online) cast.play({ key: m.key, title: m.title, poster: m.poster }).catch(fail);
+        else openDetails();
+      } };
     });
   }
 
@@ -566,6 +569,46 @@
     hint.textContent = 'up/down: choose  ·  ok: do it  ·  back: close' + (p.field ? '  ·  i: type' : '');
   }
 
+  var details = document.getElementById('details');
+
+  function renderDetails(v, key) {
+    details.textContent = '';
+    details.hidden = v === 'gallery';
+    if (v === 'gallery') { focus(); return; }
+    var it = cast.item() || {};
+    var m = state.library.filter(function (x) { return x.key === key; })[0] ||
+      { key: key, title: it.title || key, kind: it.kind, duration: it.duration, state: it.state, tags: [] };
+    var p = mediaPanel({ media: m });
+    var top = el('button', 'details-back fontpack-mono', '← gallery');
+    top.type = 'button';
+    top.addEventListener('click', function () { cast.back(); });
+    details.appendChild(top);
+    details.appendChild(el('h2', 'details-title fontpack-display', it.title || p.title));
+    var dl = el('dl', 'facts');
+    p.rows.forEach(function (r) {
+      dl.appendChild(el('dt', 'fontpack-mono', r[0]));
+      dl.appendChild(el('dd', '', r[1] || '—'));
+    });
+    details.appendChild(dl);
+    var input = el('input', 'drawer-field fontpack-mono');
+    input.placeholder = p.field.placeholder;
+    input.autocomplete = 'off';
+    input.autocapitalize = 'off';
+    input.spellcheck = false;
+    input.value = p.field.value || '';
+    details.appendChild(input);
+    var list = el('div', 'drawer-actions');
+    p.actions.slice(1).forEach(function (a) {
+      var b = el('button', 'drawer-action fontpack-mono', a.label);
+      b.type = 'button';
+      b.addEventListener('click', function () { a.run(input.value.trim()); });
+      list.appendChild(b);
+    });
+    details.appendChild(list);
+  }
+
+  cast.onView(function (v, key) { if (state.panel) closePanel(); renderDetails(v, key); });
+
   function runAction() {
     var p = state.panel;
     var a = p && p.actions[p.sel];
@@ -615,7 +658,7 @@
   }
 
   document.addEventListener('keydown', function (e) {
-    if (cast.open() || !padSheet.hidden) return;
+    if (cast.covering() || !padSheet.hidden) return;
     if (e.target.tagName === 'INPUT') {
       if (e.key === 'Escape') { e.target.blur(); e.preventDefault(); }
       else if (e.key === 'Enter' && state.panel) { e.target.blur(); runAction(); e.preventDefault(); }
@@ -929,7 +972,7 @@
   tick();
   build();
   if (online) {
-    refreshLibrary();
+    refreshLibrary().then(function () { return cast.start(); }).catch(fail);
     setInterval(function () { if (!document.hidden) refreshLibrary(); }, 60000);
     refreshScreens().then(listen);
     setInterval(function () { if (!document.hidden) refreshScreens(); }, 5000);
