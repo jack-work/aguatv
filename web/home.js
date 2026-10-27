@@ -912,7 +912,19 @@
     }).then(listen).catch(function (e) { say(e.message); }).then(function () { registering = false; });
   }
 
+  var tvShell = /; wv\)/.test(navigator.userAgent);
+  var receiverWait = new Promise(function (resolve) {
+    if (!tvShell || window.aguatvReceiver) { resolve(); return; }
+    window.addEventListener('aguatv:receiver', resolve);
+    setTimeout(resolve, 3000);
+  });
+
   function refreshScreens() {
+    if (!online) return Promise.resolve();
+    return receiverWait.then(askScreens);
+  }
+
+  function askScreens() {
     return api('GET', '/api/me').then(function (me) {
       state.me = me;
       if (window.aguatvReceiver) return { screens: me.screen ? [me.screen] : [] };
