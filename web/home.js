@@ -42,6 +42,7 @@
   var host = window.host || (previewing ? preview : bare);
   var online = !onDevice && !previewing;
   var cast = window.aguatvCast;
+  var boiled = online ? ' boil-text' : '';
 
   var store = {
     get: function (k, d) {
@@ -174,7 +175,10 @@
       tiles.push({ kind: 'this', id: 'this', label: 'This browser', open: function () { openPanel('details', registerPanel()); } });
     }
     state.screens.forEach(function (s) {
-      tiles.push({ kind: 'screen', id: s.id, label: s.name, live: !!(s.state && s.state.playing), screen: s, open: function () { openDetails(); } });
+      tiles.push({ kind: 'screen', id: s.id, label: s.name, live: !!(s.state && s.state.playing), screen: s, open: function () {
+        if (remote() && !s.here) openRemote({ screen: s });
+        else openDetails();
+      } });
     });
     state.remotes.forEach(function (r) {
       tiles.push({ kind: 'adb', id: r.name, label: r.tv || r.name, live: !!r.connected, adb: r, open: function () { openPad(r); } });
@@ -191,7 +195,7 @@
   function tileNode(t) {
     var n = el('div', 'tile' + (t.kind === 'action' ? ' action' : ''));
     if (t.kind === 'app' && isHidden(t.id)) n.classList.add('hidden-app');
-    n.appendChild(el('span', 'label', t.label));
+    n.appendChild(el('span', 'label' + boiled, t.label));
     if (t.art) {
       var img = el('img', 'art');
       img.alt = '';
@@ -219,7 +223,7 @@
     shelf.textContent = '';
     rows.forEach(function (r) {
       var sec = el('div', 'row');
-      sec.appendChild(el('div', 'row-title', r.title));
+      sec.appendChild(el('div', 'row-title' + boiled, r.title));
       var strip = el('div', 'row-tiles');
       var ri = rows.indexOf(r);
       r.nodes = r.tiles.map(function (t, ci) {
@@ -359,6 +363,7 @@
     var field = null;
     if (remote()) {
       field = { placeholder: 'a files path or URL to cast' };
+      if (!s.here) actions.push({ label: 'Remote', run: function () { openRemote({ screen: s }); } });
       actions.push(
         { label: 'Cast', run: function (ref) {
           if (!ref) { say('which file? type a path first'); return; }
@@ -382,7 +387,7 @@
     }
     if (s.here) actions.push({ label: 'This browser…', run: function () { openPanel('details', registerPanel()); } });
     if (!actions.length) rows.push(['', 'This browser is not a remote, so it can only receive.']);
-    return { title: s.name, rows: rows, field: field, actions: actions };
+    return { title: s.name, rows: rows, field: field, actions: actions, screen: s.id };
   }
 
   function detailsFor(t) {
@@ -441,12 +446,12 @@
     drawer.textContent = '';
     drawer.classList.toggle('open', !!p);
     if (!p) return;
-    drawer.appendChild(el('div', 'drawer-kind fontpack-mono', p.kind === 'settings' ? 'settings' : 'details'));
+    drawer.appendChild(el('div', 'drawer-kind fontpack-mono' + boiled, p.kind === 'settings' ? 'settings' : 'details'));
     drawer.appendChild(el('h2', 'drawer-title fontpack-display boil-text', p.title));
     var dl = el('dl', 'facts');
     p.rows.forEach(function (r) {
-      if (r[0]) dl.appendChild(el('dt', 'fontpack-mono', r[0]));
-      dl.appendChild(el('dd', r[0] ? '' : 'wide', r[1] || '—'));
+      if (r[0]) dl.appendChild(el('dt', 'fontpack-mono' + boiled, r[0]));
+      dl.appendChild(el('dd', (r[0] ? '' : 'wide') + boiled, r[1] || '—'));
     });
     drawer.appendChild(dl);
     var input = null;
@@ -462,7 +467,7 @@
     }
     var list = el('div', 'drawer-actions');
     p.actions.forEach(function (a, i) {
-      var b = el('button', 'drawer-action fontpack-mono' + (i === p.sel ? ' focus' : ''), a.label);
+      var b = el('button', 'drawer-action fontpack-mono' + boiled + (i === p.sel ? ' focus' : ''), a.label);
       b.type = 'button';
       b.addEventListener('click', function () { p.sel = i; runAction(); });
       list.appendChild(b);
@@ -577,28 +582,116 @@
   var padCount = '';
   var padG = false;
 
+  var onScreen = {
+    up: ['bar', 1], down: ['bar', 0], bar: ['bar', -1], left: ['skip', -10], right: ['skip', 10],
+    ok: ['toggle'], play: ['toggle'], rewind: ['skip', -30], forward: ['skip', 30], back: ['stop'], stop: ['stop']
+  };
+
+  function lit(action) {
+    var b = padSheet.querySelector('button[data-a="' + action + '"]:not([hidden])');
+    if (b) { b.classList.add('lit'); setTimeout(function () { b.classList.remove('lit'); }, 140); }
+  }
+
   function press(action, times) {
     if (!padFor) return;
-    var b = padSheet.querySelector('button[data-a="' + action + '"]');
-    if (b) { b.classList.add('lit'); setTimeout(function () { b.classList.remove('lit'); }, 140); }
+    lit(action);
     var n = times || 1;
-    api('POST', '/api/adb/' + encodeURIComponent(padFor.name) + '/press', { action: action, times: n })
+    if (padFor.screen) {
+      var c = onScreen[action];
+      if (!c) return;
+      var value = c[1] === undefined ? 0 : c[1] * (c[0] === 'skip' ? n : 1);
+      api('POST', '/api/screens/' + encodeURIComponent(padFor.screen.id) + '/control', { action: c[0], value: value })
+        .then(function () { padStatus.textContent = c[0] + (c[0] === 'skip' ? ' ' + (value > 0 ? '+' : '') + value + ' s' : ''); setTimeout(refreshScreens, 400); })
+        .catch(function (e) { padStatus.textContent = e.message; });
+      return;
+    }
+    api('POST', '/api/adb/' + encodeURIComponent(padFor.adb.name) + '/press', { action: action, times: n })
       .then(function () { padStatus.textContent = action + (n > 1 ? ' ×' + n : ''); })
       .catch(function (e) { padStatus.textContent = e.message; });
   }
 
-  function openPad(r) {
-    padFor = r;
-    closePanel();
-    document.getElementById('padTitle').textContent = r.tv || r.name;
-    padSheet.hidden = false;
+  function screenNow() {
+    if (!padFor || !padFor.screen) return null;
+    var s = state.screens.filter(function (x) { return x.id === padFor.screen.id; })[0];
+    return s ? s.state || null : null;
   }
+
+  function paintNow() {
+    var st = screenNow();
+    var title = document.getElementById('nowTitle');
+    if (!st || !st.title) {
+      title.textContent = 'nothing playing';
+      document.getElementById('nowFill').style.width = '0';
+      document.getElementById('nowPos').textContent = '';
+      document.getElementById('nowLeft').textContent = '';
+      return;
+    }
+    var pos = st.position + (st.playing ? (Date.now() - new Date(st.at).getTime()) / 1000 : 0);
+    if (st.duration) pos = Math.min(pos, st.duration);
+    title.textContent = (st.playing ? '' : '‖ ') + st.title;
+    document.getElementById('nowFill').style.width = st.duration ? (100 * pos / st.duration) + '%' : '0';
+    document.getElementById('nowPos').textContent = clockOf(pos);
+    document.getElementById('nowLeft').textContent = st.duration ? '−' + clockOf(st.duration - pos) : '';
+  }
+
+  var nowTimer = null;
+  var fastTimer = null;
+
+  function openRemote(target) {
+    padFor = target;
+    closePanel();
+    padSheet.classList.toggle('screen', !!target.screen);
+    padSheet.querySelectorAll('.for-screen').forEach(function (n) { n.hidden = !target.screen; });
+    padSheet.querySelectorAll('.for-adb').forEach(function (n) { n.hidden = !target.adb; });
+    document.getElementById('padTitle').textContent = target.screen ? target.screen.name : (target.adb.tv || target.adb.name);
+    padStatus.textContent = target.screen ? 'h j k l, enter, p, [ ], : to cast, esc' : 'h j k l, enter, b back, gg home, i to type, esc';
+    padSheet.hidden = false;
+    document.body.classList.add('remoting');
+    clearInterval(nowTimer);
+    clearInterval(fastTimer);
+    if (target.screen) {
+      paintNow();
+      nowTimer = setInterval(paintNow, 500);
+      fastTimer = setInterval(function () { if (!document.hidden) refreshScreens(); }, 2000);
+    }
+  }
+
+  function openPad(r) { openRemote({ adb: r }); }
 
   function closePad() {
     padSheet.hidden = true;
     padFor = null;
+    clearInterval(nowTimer);
+    clearInterval(fastTimer);
+    document.body.classList.remove('remoting');
     focus();
   }
+
+  document.getElementById('nowTrack').addEventListener('click', function (e) {
+    if (!padFor || !padFor.screen) return;
+    var r = e.currentTarget.getBoundingClientRect();
+    var f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    api('POST', '/api/screens/' + encodeURIComponent(padFor.screen.id) + '/control', { action: 'seekFraction', value: f })
+      .then(function () { padStatus.textContent = 'seek ' + Math.round(f * 100) + '%'; setTimeout(refreshScreens, 400); })
+      .catch(function (err) { padStatus.textContent = err.message; });
+  });
+
+  padSheet.querySelector('button[data-details]').addEventListener('click', function () {
+    if (!padFor || !padFor.screen) return;
+    var s = padFor.screen;
+    closePad();
+    openPanel('details', screenPanel({ screen: s }));
+  });
+
+  document.getElementById('padCast').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var input = e.target.querySelector('input');
+    var ref = input.value.trim();
+    if (!padFor || !padFor.screen || !ref) return;
+    api('POST', '/api/screens/' + encodeURIComponent(padFor.screen.id) + '/cast', { url: ref })
+      .then(function (r) { padStatus.textContent = 'cast ' + r.title; input.blur(); setTimeout(refreshScreens, 800); })
+      .catch(function (err) { padStatus.textContent = err.message; });
+  });
 
   padSheet.querySelectorAll('button[data-a]').forEach(function (b) {
     b.addEventListener('click', function () { press(b.dataset.a); });
@@ -607,9 +700,9 @@
   document.getElementById('padText').addEventListener('submit', function (e) {
     e.preventDefault();
     var input = e.target.querySelector('input');
-    if (!padFor) return;
+    if (!padFor || !padFor.adb) return;
     if (!input.value) { press('enter'); return; }
-    api('POST', '/api/adb/' + encodeURIComponent(padFor.name) + '/text', { text: input.value })
+    api('POST', '/api/adb/' + encodeURIComponent(padFor.adb.name) + '/text', { text: input.value })
       .then(function () { padStatus.textContent = 'typed'; input.value = ''; })
       .catch(function (err) { padStatus.textContent = err.message; });
   });
@@ -638,7 +731,7 @@
     if (k === 'Escape' || k === 'q') { if (padCount) padCount = ''; else closePad(); return; }
     if (/^[0-9]$/.test(k) && (k !== '0' || padCount)) { if (padCount.length < 2) padCount += k; return; }
     if (k === 'g') { padG = true; return; }
-    if (k === 'i' || k === 'a') { padSheet.querySelector('#padText input').focus(); return; }
+    if (k === 'i' || k === 'a' || k === ':') { padSheet.querySelector(padFor && padFor.screen ? '#padCast input' : '#padText input').focus(); return; }
     var action = padKeys[k];
     if (action) press(action, Math.min(parseInt(padCount, 10) || 1, 50));
     padCount = '';
@@ -662,7 +755,8 @@
       build();
       var p = state.panel;
       var t = current();
-      if (p && p.kind === 'details' && t && t.screen && document.activeElement !== fieldOf()) openPanel('details', detailsFor(t), true);
+      if (p && p.screen && t && t.screen && p.screen === t.screen.id && document.activeElement !== fieldOf()) openPanel('details', detailsFor(t), true);
+      if (!padSheet.hidden) paintNow();
     }).catch(function (e) { say(e.message); });
   }
 
@@ -716,6 +810,7 @@
   };
 
   document.body.classList.toggle('online', online);
+  if (online) ['here', 'date', 'hint'].forEach(function (id) { document.getElementById(id).classList.add('boil-text'); });
   applyPrefs();
   tick();
   build();

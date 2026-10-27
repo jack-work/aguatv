@@ -7,6 +7,7 @@
   var filo = null;
   var title = '';
   var listeners = [];
+  var barShown = false;
 
   function state() {
     return {
@@ -53,6 +54,7 @@
       case 'seekTo': filo.seekTo(value); break;
       case 'seekFraction': filo.seekFraction(value); break;
       case 'chapter': filo.chapter(value < 0 ? -1 : 1); break;
+      case 'bar': filo.showBar(value < 0 ? !barShown : value > 0); break;
     }
   }
 
@@ -62,6 +64,7 @@
   }
 
   bar.addEventListener('filo:stop', close);
+  bar.addEventListener('filo:bar', function (e) { barShown = !!(e.detail && e.detail.shown); });
   bar.addEventListener('filo:seek', tell);
   video.addEventListener('play', tell);
   video.addEventListener('pause', tell);

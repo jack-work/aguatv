@@ -33,10 +33,16 @@
 
 <section class="pad-sheet" id="pad" hidden>
   <header class="pad-top">
-    <div class="pad-title fontpack-display" id="padTitle"></div>
+    <div class="pad-title fontpack-display boil-text-squiggle" id="padTitle"></div>
+    <button data-details class="small for-screen">details</button>
     <button data-close class="small">close</button>
   </header>
-  <div class="row three">
+  <div class="now for-screen" id="now">
+    <div class="now-title fontpack-prose boil-text" id="nowTitle">nothing playing</div>
+    <div class="now-track" id="nowTrack"><div class="now-fill" id="nowFill"></div></div>
+    <div class="now-times fontpack-mono"><span id="nowPos">0:00</span><span id="nowLeft"></span></div>
+  </div>
+  <div class="row three for-adb">
     <button data-a="power" class="small">power</button>
     <button data-a="settings" class="small">aguatv</button>
     <button data-a="tvsettings" class="small">TV set.</button>
@@ -44,30 +50,36 @@
   <div class="pad" aria-label="direction pad">
     <button data-a="up" class="up" aria-label="up">▲</button>
     <button data-a="left" class="left" aria-label="left">◀</button>
-    <button data-a="ok" class="ok fontpack-display">OK</button>
+    <button data-a="ok" class="ok fontpack-display boil-text">OK</button>
     <button data-a="right" class="right" aria-label="right">▶</button>
     <button data-a="down" class="down" aria-label="down">▼</button>
   </div>
   <div class="row three">
-    <button data-a="back">back</button>
-    <button data-a="home">home</button>
-    <button data-a="menu">details</button>
+    <button data-a="back" class="boil-text">back</button>
+    <button data-a="home" class="for-adb boil-text">home</button>
+    <button data-a="stop" class="for-screen boil-text">stop</button>
+    <button data-a="menu" class="for-adb boil-text">details</button>
+    <button data-a="bar" class="for-screen boil-text">bar</button>
   </div>
   <div class="row three">
-    <button data-a="rewind" aria-label="rewind">◀◀</button>
+    <button data-a="rewind" aria-label="back 30 seconds">◀◀</button>
     <button data-a="play" aria-label="play or pause">▶‖</button>
-    <button data-a="forward" aria-label="fast forward">▶▶</button>
+    <button data-a="forward" aria-label="forward 30 seconds">▶▶</button>
   </div>
-  <div class="row three">
-    <button data-a="voldown">vol −</button>
-    <button data-a="mute">mute</button>
-    <button data-a="volup">vol +</button>
+  <div class="row three for-adb">
+    <button data-a="voldown" class="boil-text">vol −</button>
+    <button data-a="mute" class="boil-text">mute</button>
+    <button data-a="volup" class="boil-text">vol +</button>
   </div>
-  <form class="field" id="padText">
+  <form class="field for-adb" id="padText">
     <input class="fontpack-mono" placeholder="type on the TV" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <button type="submit">send</button>
+    <button type="submit" class="boil-text">send</button>
   </form>
-  <div class="pad-status fontpack-mono" id="padStatus">h j k l, enter, b back, gg home, i to type, esc to close</div>
+  <form class="field for-screen" id="padCast">
+    <input class="fontpack-mono" placeholder="a files path to cast" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button type="submit" class="boil-text">cast</button>
+  </form>
+  <div class="pad-status fontpack-mono" id="padStatus"></div>
 </section>
 
 <section class="cast" id="cast" hidden>

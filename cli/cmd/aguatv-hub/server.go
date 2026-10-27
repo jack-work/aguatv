@@ -369,7 +369,7 @@ func (h *Hub) cast(w http.ResponseWriter, r *http.Request, c Caller) {
 	reply(w, http.StatusOK, map[string]string{"url": u, "title": title})
 }
 
-var controls = map[string]bool{"toggle": true, "skip": true, "seekTo": true, "seekFraction": true, "chapter": true, "stop": true}
+var controls = map[string]bool{"toggle": true, "skip": true, "seekTo": true, "seekFraction": true, "chapter": true, "stop": true, "bar": true}
 
 func (h *Hub) control(w http.ResponseWriter, r *http.Request, c Caller) {
 	var body struct {
