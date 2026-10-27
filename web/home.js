@@ -73,6 +73,8 @@
     screens: [],
     remotes: [],
     library: [],
+    libraryRefused: false,
+    folder: store.get('folder', ''),
     query: ''
   };
 
@@ -160,6 +162,13 @@
         open: function () { openSettings(); }
       }
     ];
+    if (online) {
+      tiles.push({
+        kind: 'action', id: 'folder', label: state.folder ? 'Folder: ' + state.folder : 'Library folder',
+        about: 'Which folder the gallery shows.',
+        open: function () { openPanel('details', folderPanel()); }
+      });
+    }
     if (onDevice) {
       tiles.push({
         kind: 'action', id: 'tv-settings', label: 'TV settings',
@@ -175,6 +184,24 @@
     var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
     while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
     return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + ' ' + u[i];
+  }
+
+  function folderPanel() {
+    return {
+      title: 'Library folder',
+      rows: [['', state.libraryRefused
+        ? 'You may not list everything, so the gallery shows one folder you can list. Name it, like films/.'
+        : 'The gallery shows this folder and everything under it. Leave it empty for all of your files.']],
+      field: { placeholder: 'a folder, like films/', value: state.folder },
+      actions: [{ label: 'Show this folder', run: function (text) {
+        var f = text.replace(/^\/+/, '');
+        if (f && !/\/$/.test(f)) f += '/';
+        state.folder = f;
+        store.set('folder', f);
+        closePanel();
+        refreshLibrary();
+      } }]
+    };
   }
 
   function mediaTiles(kind) {
@@ -452,6 +479,7 @@
     if (t.kind === 'this') return registerPanel();
     if (t.kind === 'screen') return screenPanel(t);
     if (t.kind === 'adb') return { title: t.label, rows: [['', 'An adb remote for this TV.']], actions: [{ label: 'Open the remote', run: t.open }] };
+    if (t.kind === 'action' && t.id === 'folder') return folderPanel();
     if (t.kind === 'action') {
       return { title: t.label, rows: [['', t.about]], actions: [{ label: 'Open', run: t.open }] };
     }
@@ -825,13 +853,16 @@
     if (!online) return Promise.resolve();
     var ask = ++libraryAsk;
     var q = state.query ? '?q=' + encodeURIComponent(state.query) : '';
-    return fetch('/_media/api/lib/' + q, { credentials: 'same-origin' }).then(function (r) {
+    var folder = state.folder.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    return fetch('/_media/api/lib/' + (folder ? folder + '/' : '') + q, { credentials: 'same-origin' }).then(function (r) {
+      state.libraryRefused = r.status === 403;
       if (r.status === 403 || r.status === 404) return { items: [] };
       if (!r.ok) throw new Error('library: ' + r.status);
       return r.json();
     }).then(function (l) {
       if (ask !== libraryAsk) return;
       state.library = l.items || [];
+      if (state.libraryRefused) say('you may not list every file: choose a library folder under Settings');
       build();
     }).catch(function (e) { say(e.message); });
   }
