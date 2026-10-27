@@ -14,6 +14,8 @@
 
   function online() { return !window.host && !/[?&]preview\b/.test(location.search); }
 
+  function onTv() { return !!window.aguatvReceiver; }
+
   function state() {
     return {
       title: item ? item.title : '',
@@ -184,17 +186,18 @@
     item = it;
     root.hidden = false;
     var web = online();
+    var tv = onTv();
     var audio = it.kind === 'audio';
-    var docked = web && (audio || (wasDocked && how === 'cast'));
-    if (!web) document.body.classList.add('casting');
+    var docked = web && !tv && (audio || (wasDocked && how === 'cast'));
+    if (!web || tv) document.body.classList.add('casting');
     if (it.poster) video.setAttribute('poster', it.poster);
     var chapters = (it.chapters || []).map(function (c) { return { start: c.start, title: c.title }; });
     var qualities = qualitiesOf(it);
     filo = window.zanni.filo.attach(video, {
       globalKeys: true,
       autohide: 4000,
-      fill: !web,
-      bar: web,
+      fill: !web || tv,
+      bar: web && !tv,
       docked: docked,
       boil: false,
       kind: it.kind === 'audio' ? 'audio' : undefined,
@@ -208,7 +211,8 @@
     filo.focus();
     var resume = it.position && it.position.position > 5 && (!it.duration || it.position.position < it.duration - 10) ? it.position.position : 0;
     source(it.original, it.state === 'ready' ? it.master : null, resume, true);
-    if (web && how === 'about') setView('about', it.key, null);
+    if (tv) setView('gallery', null, null);
+    else if (web && how === 'about') setView('about', it.key, null);
     else if (web && !docked) setView('watch', it.key, how === 'load' ? null : 'push');
     tell();
   }
@@ -267,7 +271,7 @@
   document.addEventListener('visibilitychange', function () { if (document.hidden) savePosition(true); });
   document.addEventListener('keydown', function (e) {
     if (!filo || e.key !== 'Escape' || filo.open) return;
-    if (!online()) stop();
+    if (!online() || onTv()) stop();
     else if (view !== 'gallery') back();
     else return;
     e.preventDefault();
@@ -282,6 +286,7 @@
     port.onmessage = function (m) {
       var r;
       try { r = JSON.parse(m.data); } catch (err) { return; }
+      if (r && r.event === 'back' && r.id === undefined) { window.dispatchEvent(new Event('aguatv:back')); return; }
       var w = waiting[r.id];
       if (!w) return;
       delete waiting[r.id];
@@ -303,6 +308,7 @@
         });
       }
     };
+    window.dispatchEvent(new Event('aguatv:receiver'));
   });
 
   window.aguatvCast = {

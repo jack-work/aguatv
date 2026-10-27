@@ -73,6 +73,7 @@
     screens: [],
     remotes: [],
     library: [],
+    inputs: [],
     libraryRefused: false,
     folder: store.get('folder', ''),
     query: ''
@@ -138,12 +139,35 @@
   function isHidden(id) { return state.hidden.indexOf(id) >= 0; }
 
   function inputTiles() {
+    if (window.aguatvReceiver) {
+      return state.inputs.map(function (i) {
+        return {
+          kind: 'input', id: i.id, label: i.label, live: i.connected,
+          open: function (e) { switchInputByHand(e, i.id); }
+        };
+      });
+    }
     return parse(host.inputs()).map(function (i) {
       return {
         kind: 'input', id: i.id, label: i.label, live: i.connected,
         open: function () { host.openInput(i.id); }
       };
     });
+  }
+
+  function switchInputByHand(e, id) {
+    if (!e || !e.isTrusted || !window.aguatvReceiver) return;
+    window.aguatvReceiver.call('input', { input: id }).catch(function (err) { say(err.message); });
+  }
+
+  function refreshInputs() {
+    if (!window.aguatvReceiver) return Promise.resolve();
+    return window.aguatvReceiver.call('inputs', {}).then(function (list) {
+      if (!Array.isArray(list)) return;
+      var seen = JSON.stringify(state.inputs);
+      state.inputs = list.filter(function (i) { return i && typeof i.id === 'string' && typeof i.label === 'string'; });
+      if (JSON.stringify(state.inputs) !== seen) build();
+    }).catch(function () {});
   }
 
   function appTiles() {
@@ -286,11 +310,11 @@
       var ri = rows.indexOf(r);
       r.nodes = r.tiles.map(function (t, ci) {
         var n = tileNode(t);
-        n.addEventListener('click', function () {
+        n.addEventListener('click', function (e) {
           state.row = ri;
           state.col = ci;
           focus();
-          t.open();
+          t.open(e);
         });
         strip.appendChild(n);
         return n;
@@ -494,7 +518,7 @@
     if (t.kind === 'input') {
       var rows = [['Type', d.type], ['State', d.state]];
       rows.push(['Service', d.service], ['Input', d.id]);
-      return { title: d.label || t.label, rows: rows, actions: [{ label: 'Switch to it', run: t.open }] };
+      return { title: d.label || t.label, rows: rows, actions: [{ label: 'Switch to it', run: function (text, e) { t.open(e); } }] };
     }
     var hidden = isHidden(t.id);
     return {
@@ -562,7 +586,7 @@
     p.actions.forEach(function (a, i) {
       var b = el('button', 'drawer-action fontpack-mono' + boiled + (i === p.sel ? ' focus' : ''), a.label);
       b.type = 'button';
-      b.addEventListener('click', function () { p.sel = i; runAction(); });
+      b.addEventListener('click', function (e) { p.sel = i; runAction(e); });
       list.appendChild(b);
     });
     drawer.appendChild(list);
@@ -613,12 +637,12 @@
 
   cast.onView(function (v, key) { if (state.panel) closePanel(); renderDetails(v, key); });
 
-  function runAction() {
+  function runAction(e) {
     var p = state.panel;
     var a = p && p.actions[p.sel];
     if (!a) return;
     var text = p.text !== undefined ? p.text : (p.field && p.field.value) || '';
-    a.run(text.trim());
+    a.run(text.trim(), e);
   }
 
   function fieldOf() { return drawer.querySelector('.drawer-field'); }
@@ -649,12 +673,12 @@
     openPanel('settings', settingsPanel(), keepSel);
   }
 
-  function panelKey(key) {
+  function panelKey(key, e) {
     var p = state.panel;
     switch (key) {
       case 'ArrowUp': case 'k': p.sel = Math.max(0, p.sel - 1); renderPanel(); return true;
       case 'ArrowDown': case 'j': p.sel = Math.min(p.actions.length - 1, p.sel + 1); renderPanel(); return true;
-      case 'Enter': case ' ': runAction(); return true;
+      case 'Enter': case ' ': runAction(e); return true;
       case 'ArrowLeft': case 'Escape': case 'h': closePanel(); return true;
       case 'i': case ':': if (fieldOf()) { fieldOf().focus(); return true; } return false;
     }
@@ -665,12 +689,12 @@
     if (cast.covering() || !padSheet.hidden) return;
     if (e.target.tagName === 'INPUT') {
       if (e.key === 'Escape') { e.target.blur(); e.preventDefault(); }
-      else if (e.key === 'Enter' && state.panel) { e.target.blur(); runAction(); e.preventDefault(); }
+      else if (e.key === 'Enter' && state.panel) { e.target.blur(); runAction(e); e.preventDefault(); }
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (state.panel) {
-      if (panelKey(e.key)) e.preventDefault();
+      if (panelKey(e.key, e)) e.preventDefault();
       return;
     }
     switch (e.key) {
@@ -680,7 +704,7 @@
       case 'ArrowRight': case 'l': move(0, 1); break;
       case 'Enter': case ' ':
         var t = current();
-        if (t) t.open();
+        if (t) t.open(e);
         break;
       case 'i': case 'ContextMenu': openDetails(); break;
       case '/': if (online) { search.focus(); break; } return;
@@ -889,7 +913,6 @@
   }
 
   function refreshScreens() {
-    if (!online) return Promise.resolve();
     return api('GET', '/api/me').then(function (me) {
       state.me = me;
       if (window.aguatvReceiver) return { screens: me.screen ? [me.screen] : [] };
@@ -997,6 +1020,10 @@
     refreshLibrary().then(function () { return cast.start(); }).catch(fail);
     setInterval(function () { if (!document.hidden) refreshLibrary(); }, 60000);
     refreshScreens().then(listen);
+    window.addEventListener('aguatv:receiver', function () { refreshInputs(); });
+    window.addEventListener('aguatv:back', function () { window.aguatv.back(); });
+    if (window.aguatvReceiver) refreshInputs();
+    setInterval(function () { if (!document.hidden) refreshInputs(); }, 30000);
     setInterval(function () { if (!document.hidden) refreshScreens(); }, 5000);
   }
   requestAnimationFrame(function () {
