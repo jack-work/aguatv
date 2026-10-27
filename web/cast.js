@@ -14,6 +14,7 @@
   var view = 'gallery';
   var pushed = false;
   var viewers = [];
+  var loads = 0;
 
   function online() { return !window.host && !/[?&]preview\b/.test(location.search); }
 
@@ -50,6 +51,7 @@
   }
 
   function unload() {
+    loads++;
     if (hls) { hls.destroy(); hls = null; }
     video.pause();
     video.removeAttribute('src');
@@ -162,13 +164,16 @@
       return Promise.resolve();
     }
     if (master && window.MediaSource) {
+      var load = loads;
       return loadHls().then(function (Hls) {
+        if (load !== loads) return;
         hls = new Hls({ startPosition: at || -1 });
         hls.loadSource(master);
         hls.attachMedia(video);
         at = 0;
         resume();
       }).catch(function () {
+        if (load !== loads) return;
         video.src = src;
         resume();
       });
