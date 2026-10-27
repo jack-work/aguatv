@@ -18,6 +18,7 @@ body {
 .stage {
   position: relative;
   height: 100vh;
+  height: 100dvh;
   padding: 1.6rem 3.2rem 1rem;
   display: flex;
   flex-direction: column;
@@ -383,7 +384,9 @@ body.casting { overflow: hidden; }
 
 @media (max-aspect-ratio: 1/1) {
   html { font-size: calc(100vw / 26); }
-  body.online, body.online .stage { overflow-y: auto; height: auto; min-height: 100vh; min-height: 100dvh; }
+  html:has(body.online) { overflow-y: auto; }
+  body.online, body.online .stage, body.online .shelf { overflow: visible; height: auto; }
+  body.online .stage { min-height: 100vh; min-height: 100dvh; }
   .stage { padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom)); }
   .masthead { flex-wrap: wrap; }
   .mark { font-size: 2.4rem; }
