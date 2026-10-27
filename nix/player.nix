@@ -14,6 +14,7 @@ pkgs.stdenv.mkDerivation {
   nativeBuildInputs = [
     jdk
     pkgs.zip
+    pkgs.zbar
   ];
   dontConfigure = true;
   buildPhase = ''
@@ -35,6 +36,15 @@ pkgs.stdenv.mkDerivation {
     javac --release 8 -Xlint:all -Xlint:-options -Werror -encoding UTF-8 -d work/test \
       src/tv/aguatv/player/Fence.java test/tv/aguatv/player/FenceTest.java
     java -cp work/test tv.aguatv.player.FenceTest
+    javac --release 8 -Xlint:all -Xlint:-options -Werror -encoding UTF-8 -d work/test \
+      src/tv/aguatv/player/QrCode.java test/tv/aguatv/player/QrCodeTest.java
+    mkdir -p work/qr
+    java -cp work/test tv.aguatv.player.QrCodeTest work/qr
+    for t in work/qr/*.txt; do
+      got=$(zbarimg -q --raw "''${t%.txt}.pbm" || true)
+      if [ "$got" = "$(cat "$t")" ]; then echo "ok   zbar reads code $(basename "$t" .txt)"
+      else echo "FAIL code $(basename "$t" .txt) decodes as: $got"; exit 1; fi
+    done
     (cd work && zip -q -X app.apk classes.dex)
     $bt/zipalign -f -p 4 work/app.apk work/aligned.apk
     runHook postBuild
