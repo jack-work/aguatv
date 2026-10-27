@@ -144,7 +144,7 @@
       }
       if (playing) video.play().catch(function () { if (filo) filo.showBar(true); });
     }
-    if (master && video.canPlayType('application/vnd.apple.mpegurl')) {
+    if (master && !window.aguatvReceiver && video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = master;
       resume();
       return Promise.resolve();
@@ -273,6 +273,37 @@
     e.preventDefault();
     e.stopImmediatePropagation();
   }, true);
+
+  window.addEventListener('message', function (e) {
+    if (window.aguatvReceiver || e.data !== 'aguatv-receiver' || (e.origin && e.origin !== location.origin) || !e.ports || !e.ports[0]) return;
+    var port = e.ports[0];
+    var waiting = {};
+    var next = 1;
+    port.onmessage = function (m) {
+      var r;
+      try { r = JSON.parse(m.data); } catch (err) { return; }
+      var w = waiting[r.id];
+      if (!w) return;
+      delete waiting[r.id];
+      if (r.status >= 200 && r.status < 300) {
+        var body = {};
+        try { body = r.body ? JSON.parse(r.body) : {}; } catch (err) {}
+        w.resolve(body);
+      } else {
+        w.reject(new Error('the TV could not save that (' + r.status + ')'));
+      }
+    };
+    window.aguatvReceiver = {
+      call: function (op, body) {
+        var id = next++;
+        return new Promise(function (resolve, reject) {
+          waiting[id] = { resolve: resolve, reject: reject };
+          port.postMessage(JSON.stringify({ id: id, op: op, body: body || {} }));
+          setTimeout(function () { if (waiting[id]) { delete waiting[id]; reject(new Error('the TV did not answer')); } }, 15000);
+        });
+      }
+    };
+  });
 
   window.aguatvCast = {
     play: play,

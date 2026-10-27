@@ -88,6 +88,10 @@
   var padFor = null;
 
   function api(method, path, body) {
+    var receiver = window.aguatvReceiver;
+    if (receiver && method === 'POST' && (path === '/api/me' || path === '/api/me/state')) {
+      return receiver.call(path === '/api/me' ? 'register' : 'state', body);
+    }
     var opts = { method: method, credentials: 'same-origin', headers: {} };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
@@ -396,9 +400,9 @@
         : 'Make this browser one of your screens, so you can cast to it. As a remote it may also cast to and control your other screens.']],
       field: { placeholder: 'name this screen', value: current ? current.name : '' },
       actions: [
-        { label: 'Screen only', run: save(false) },
-        { label: 'Screen and remote', run: save(true) }
-      ].concat(current ? [{ label: 'Forget this browser', run: function () {
+        { label: 'Screen only', run: save(false) }
+      ].concat(window.aguatvReceiver ? [] : [{ label: 'Screen and remote', run: save(true) }])
+      .concat(current && !window.aguatvReceiver ? [{ label: 'Forget this browser', run: function () {
         api('DELETE', '/api/me').then(function () { closePanel(); cast.stop(); return refreshScreens(); }).catch(fail);
       } }] : [])
     };
