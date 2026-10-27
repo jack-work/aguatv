@@ -37,6 +37,9 @@ pkgs.stdenv.mkDerivation {
       src/tv/aguatv/player/Fence.java test/tv/aguatv/player/FenceTest.java
     java -cp work/test tv.aguatv.player.FenceTest
     javac --release 8 -Xlint:all -Xlint:-options -Werror -encoding UTF-8 -d work/test \
+      src/tv/aguatv/player/Json.java src/tv/aguatv/player/Ops.java test/tv/aguatv/player/OpsTest.java
+    java -cp work/test tv.aguatv.player.OpsTest
+    javac --release 8 -Xlint:all -Xlint:-options -Werror -encoding UTF-8 -d work/test \
       src/tv/aguatv/player/QrCode.java test/tv/aguatv/player/QrCodeTest.java
     mkdir -p work/qr
     java -cp work/test tv.aguatv.player.QrCodeTest work/qr

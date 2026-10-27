@@ -64,6 +64,21 @@ final class Fence {
         return false;
     }
 
+    boolean opens(String url) {
+        URI u = parse(url);
+        return u != null && !origin(u).equals(authOrigin) && navigates(url);
+    }
+
+    boolean ownsApp(String url) {
+        URI u = parse(url);
+        return u != null && origin(u).equals(appOrigin);
+    }
+
+    boolean authority(String url) {
+        URI u = parse(url);
+        return u != null && origin(u).equals(authOrigin);
+    }
+
     boolean fetches(String url) {
         URI u = parse(url);
         if (u == null) return false;

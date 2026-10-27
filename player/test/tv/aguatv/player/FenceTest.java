@@ -33,6 +33,10 @@ public final class FenceTest {
         check("elevation and settings are refused", !f.fetches("https://auth.example.org/api/user/session/elevation") && !f.fetches("https://auth.example.org/settings"));
         check("changing the second factor method is refused", !f.fetches("https://auth.example.org/api/user/info/2fa_method"));
         check("no other host loads anything", !f.fetches("https://keel.example.org/x.js") && !f.fetches("https://cdn.example.com/x.js") && !f.fetches("http://files.example.org/x"));
+        check("the web view opens the app and the redirect origin", f.opens("https://files.example.org/_media/app/home") && f.opens("https://tv.example.org/"));
+        check("the web view never opens the portal, even its sign-in page", !f.opens("https://auth.example.org/?rd=" + rd) && !f.opens("https://auth.example.org/logout"));
+        check("only the app origin gets the token", f.ownsApp("https://files.example.org/x") && !f.ownsApp("https://tv.example.org/") && !f.ownsApp("https://auth.example.org/") && !f.ownsApp("https://files.example.org.evil.net/x") && !f.ownsApp("http://files.example.org/x"));
+        check("the sign-in endpoints must be on the portal", f.authority("https://auth.example.org/api/oidc/token") && !f.authority("https://evil.example.net/api/oidc/token"));
         check("an app without a path is refused", Fence.of("https://files.example.org/", "https://auth.example.org", null) == null);
         check("an http app is refused", Fence.of("http://files.example.org/_media/app/home", "https://auth.example.org", null) == null);
         String[] mine = { "https://files.example.org/_media/app/home", "https://auth.example.org", "https://tv.example.org" };
