@@ -63,10 +63,18 @@
     tell();
   }
 
+  function objectKey(key) {
+    if (/[\x00-\x1f\x7f\\]/.test(key)) return false;
+    return key.split('/').every(function (p) { return p && p !== '.' && p !== '..'; });
+  }
+
   function routeOf(search) {
     var m = /[?&](w|a)=([^&]+)/.exec(search);
     if (!m) return { view: 'gallery' };
-    return { view: m[1] === 'w' ? 'watch' : 'about', key: decodeURIComponent(m[2]) };
+    var key;
+    try { key = decodeURIComponent(m[2]); } catch (e) { return { view: 'gallery' }; }
+    if (!objectKey(key)) return { view: 'gallery' };
+    return { view: m[1] === 'w' ? 'watch' : 'about', key: key };
   }
 
   function urlFor(v, key) {
