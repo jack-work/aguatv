@@ -3,6 +3,9 @@
 
   var root = document.getElementById('cast');
   var video = document.getElementById('video');
+  var note = document.getElementById('castNote');
+  var waiting = null;
+  var READY_POLL_MS = 15000;
   var filo = null;
   var hls = null;
   var item = null;
@@ -54,7 +57,14 @@
     video.load();
   }
 
+  function unprepare() {
+    if (waiting) { clearTimeout(waiting); waiting = null; }
+    note.hidden = true;
+    note.textContent = '';
+  }
+
   function close() {
+    unprepare();
     savePosition(true);
     if (filo) { filo.detach(); filo = null; }
     unload();
@@ -179,7 +189,31 @@
     source(item.original, value === 'auto' || !rung ? item.master : rung.playlist, at, playing);
   }
 
+  function prepare(it, how) {
+    unprepare();
+    if (filo) { filo.detach(); filo = null; }
+    unload();
+    item = it;
+    root.hidden = false;
+    document.body.classList.add('casting');
+    if (it.poster) video.setAttribute('poster', it.poster);
+    note.textContent = it.state === 'failed' ? 'This video could not be prepared for the TV' : 'Preparing this for the TV';
+    note.hidden = false;
+    tell();
+    if (it.state === 'failed') return;
+    waiting = setTimeout(function () {
+      waiting = null;
+      if (item !== it) return;
+      describe({ key: it.key, title: it.title, poster: it.poster }).then(function (fresh) {
+        if (item !== it) return;
+        if (fresh.state === 'ready') show(fresh, how);
+        else prepare(fresh, how);
+      }, function () { if (item === it) prepare(it, how); });
+    }, READY_POLL_MS);
+  }
+
   function show(it, how) {
+    unprepare();
     var wasDocked = !!(filo && filo.docked);
     if (filo) filo.detach();
     unload();
@@ -223,15 +257,32 @@
       show({ key: e.url, title: e.title || '', original: e.url, kind: 'video', state: 'none' }, how);
       return Promise.resolve();
     }
+    return describe(e).then(function (it) {
+      if (onTv() && it.kind === 'video' && it.state !== 'ready') prepare(it, how);
+      else show(it, how);
+    });
+  }
+
+  function describe(e) {
     return fetch(itemPath(e.key), { credentials: 'same-origin' }).then(function (r) {
       if (!r.ok) throw new Error('that file is not yours to play (' + r.status + ')');
       return r.json();
     }).then(function (it) {
       it.title = it.title || e.title || e.key;
-      it.kind = it.kind || (/\.(mp4|m4v|mov|mkv|webm)$/i.test(e.key) ? 'video' : 'audio');
+      it.kind = it.kind || (isVideo(e.key) ? 'video' : 'audio');
       if (e.poster) it.poster = e.poster;
-      show(it, how);
+      return it;
     });
+  }
+
+  function isVideo(key) { return /\.(mp4|m4v|mov|mkv|webm)$/i.test(key); }
+
+  function prepareFor(key) {
+    if (!isVideo(key) || !online()) return Promise.resolve();
+    return fetch(itemPath(key), {
+      method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingest: true })
+    }).then(function (r) { return r.ok ? r.json() : null; }, function () { return null; });
   }
 
   function control(action, value) {
@@ -252,6 +303,8 @@
     else close();
   }
 
+  function preparing() { return !!item && !filo && !note.hidden; }
+
   root.addEventListener('filo:stop', close);
   root.addEventListener('filo:expand', function () {
     if (!item) return;
@@ -270,8 +323,8 @@
   video.addEventListener('ended', function () { savePosition(true); stop(); });
   document.addEventListener('visibilitychange', function () { if (document.hidden) savePosition(true); });
   document.addEventListener('keydown', function (e) {
-    if (!filo || e.key !== 'Escape' || filo.open) return;
-    if (!online() || onTv()) stop();
+    if (e.key !== 'Escape' || (filo && filo.open) || (!filo && !preparing())) return;
+    if (!online() || onTv() || preparing()) stop();
     else if (view !== 'gallery') back();
     else return;
     e.preventDefault();
@@ -316,8 +369,9 @@
     control: control,
     stop: stop,
     state: state,
-    open: function () { return !!filo; },
-    covering: function () { return view !== 'gallery' || (!!filo && !filo.docked); },
+    open: function () { return !!filo || preparing(); },
+    covering: function () { return view !== 'gallery' || (!!filo && !filo.docked) || preparing(); },
+    prepareFor: prepareFor,
     item: function () { return item; },
     view: function () { return view; },
     back: back,

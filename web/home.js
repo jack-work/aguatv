@@ -109,6 +109,12 @@
 
   function say(text) { hint.textContent = text; }
 
+  function castTo(screen, key) {
+    return cast.prepareFor(key).then(function () {
+      return api('POST', '/api/screens/' + encodeURIComponent(screen.id) + '/cast', { key: key });
+    });
+  }
+
   function clockOf(t) {
     t = Math.max(0, Math.round(t || 0));
     var h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60;
@@ -449,7 +455,7 @@
       actions.push(
         { label: 'Cast', run: function (ref) {
           if (!ref) { say('which file? type a path first'); return; }
-          api('POST', '/api/screens/' + encodeURIComponent(s.id) + '/cast', { key: ref }).then(function (r) { say('cast ' + r.title + ' to ' + s.name); }).catch(fail);
+          castTo(s, ref).then(function (r) { say('cast ' + r.title + ' to ' + s.name); }).catch(fail);
         } },
         { label: 'Play / pause', run: to('/control', { action: 'toggle' }, function () { return 'play / pause'; }) },
         { label: 'Back 30 s', run: to('/control', { action: 'skip', value: -30 }, function () { return '−30 s'; }) },
@@ -497,7 +503,7 @@
     if (remote()) {
       state.screens.filter(function (s) { return !s.here; }).forEach(function (s) {
         actions.push({ label: 'Cast to ' + s.name, run: function () {
-          api('POST', '/api/screens/' + encodeURIComponent(s.id) + '/cast', { key: m.key })
+          castTo(s, m.key)
             .then(function () { say('cast ' + m.title + ' to ' + s.name); openRemote({ screen: s }); }).catch(fail);
         } });
       });
@@ -846,7 +852,7 @@
     var input = e.target.querySelector('input');
     var ref = input.value.trim();
     if (!padFor || !padFor.screen || !ref) return;
-    api('POST', '/api/screens/' + encodeURIComponent(padFor.screen.id) + '/cast', { key: ref })
+    castTo(padFor.screen, ref)
       .then(function (r) { padStatus.textContent = 'cast ' + r.title; input.blur(); setTimeout(refreshScreens, 800); })
       .catch(function (err) { padStatus.textContent = err.message; });
   });
