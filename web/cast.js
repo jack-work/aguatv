@@ -135,7 +135,7 @@
       globalKeys: true,
       autohide: 4000,
       fill: true,
-      boil: !window.host,
+      boil: false,
       kind: it.kind === 'audio' ? 'audio' : undefined,
       title: it.title,
       chapters: chapters,
