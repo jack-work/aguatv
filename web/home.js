@@ -877,14 +877,32 @@
     here.textContent = state.me.user + (s ? ' · ' + s.name + (s.remote ? ' · remote' : '') : ' · not a screen');
   }
 
+  var screensSeen = '';
+  var registering = false;
+
+  function registerTv() {
+    if (registering || !window.aguatvReceiver || !state.me || state.me.screen) return;
+    registering = true;
+    api('POST', '/api/me', { name: 'TV' }).then(function () {
+      return refreshScreens();
+    }).then(listen).catch(function (e) { say(e.message); }).then(function () { registering = false; });
+  }
+
   function refreshScreens() {
     if (!online) return Promise.resolve();
     return api('GET', '/api/me').then(function (me) {
       state.me = me;
+      if (window.aguatvReceiver) return { screens: me.screen ? [me.screen] : [] };
       return api('GET', '/api/screens');
     }).then(function (l) {
       state.screens = l.screens || [];
       state.remotes = l.remotes || [];
+      registerTv();
+      var seen = JSON.stringify([state.me.user, state.screens.map(function (x) {
+        return [x.id, x.name, x.kind, x.remote, x.here, !!(x.state && x.state.playing)];
+      }), state.remotes]);
+      if (seen === screensSeen) return;
+      screensSeen = seen;
       showHere();
       build();
       var p = state.panel;
