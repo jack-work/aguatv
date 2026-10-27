@@ -71,7 +71,6 @@
     panel: null,
     me: null,
     screens: [],
-    remotes: [],
     library: [],
     inputs: [],
     libraryRefused: false,
@@ -84,9 +83,11 @@
   var hint = document.getElementById('hint');
   var drawer = document.getElementById('drawer');
   var here = document.getElementById('here');
-  var padSheet = document.getElementById('pad');
-  var padStatus = document.getElementById('padStatus');
-  var padFor = null;
+  var casterButton = document.getElementById('caster');
+  var bacchetta = window.zanni && window.zanni.bacchetta;
+  var caster = null;
+  var remoteSheet = null;
+  var SCREEN_ONLINE_S = 120;
 
   function api(method, path, body) {
     var receiver = window.aguatvReceiver;
@@ -256,12 +257,9 @@
     }
     state.screens.forEach(function (s) {
       tiles.push({ kind: 'screen', id: s.id, label: s.name, live: !!(s.state && s.state.playing), screen: s, open: function () {
-        if (remote() && !s.here) openRemote({ screen: s });
+        if (remote() && !s.here) openRemote(s);
         else openDetails();
       } });
-    });
-    state.remotes.forEach(function (r) {
-      tiles.push({ kind: 'adb', id: r.name, label: r.tv || r.name, live: !!r.connected, adb: r, open: function () { openPad(r); } });
     });
     return tiles;
   }
@@ -451,7 +449,7 @@
     var field = null;
     if (remote()) {
       field = { placeholder: 'a files path or URL to cast' };
-      if (!s.here) actions.push({ label: 'Remote', run: function () { openRemote({ screen: s }); } });
+      if (!s.here) actions.push({ label: 'Remote', run: function () { openRemote(s); } });
       actions.push(
         { label: 'Cast', run: function (ref) {
           if (!ref) { say('which file? type a path first'); return; }
@@ -504,7 +502,7 @@
       state.screens.filter(function (s) { return !s.here; }).forEach(function (s) {
         actions.push({ label: 'Cast to ' + s.name, run: function () {
           castTo(s, m.key)
-            .then(function () { say('cast ' + m.title + ' to ' + s.name); openRemote({ screen: s }); }).catch(fail);
+            .then(function () { say('cast ' + m.title + ' to ' + s.name); openRemote(s); }).catch(fail);
         } });
       });
     }
@@ -515,7 +513,6 @@
     if (t.kind === 'media') return mediaPanel(t);
     if (t.kind === 'this') return registerPanel();
     if (t.kind === 'screen') return screenPanel(t);
-    if (t.kind === 'adb') return { title: t.label, rows: [['', 'An adb remote for this TV.']], actions: [{ label: 'Open the remote', run: t.open }] };
     if (t.kind === 'action' && t.id === 'folder') return folderPanel();
     if (t.kind === 'action') {
       return { title: t.label, rows: [['', t.about]], actions: [{ label: 'Open', run: t.open }] };
@@ -692,7 +689,7 @@
   }
 
   document.addEventListener('keydown', function (e) {
-    if (cast.covering() || !padSheet.hidden) return;
+    if (cast.covering()) return;
     if (e.target.tagName === 'INPUT') {
       if (e.key === 'Escape') { e.target.blur(); e.preventDefault(); }
       else if (e.key === 'Enter' && state.panel) { e.target.blur(); runAction(e); e.preventDefault(); }
@@ -737,169 +734,95 @@
     tickTimer = setTimeout(tick, 60000 - d.getSeconds() * 1000 - d.getMilliseconds() + 50);
   }
 
-  var padKeys = {
-    h: 'left', ArrowLeft: 'left', j: 'down', ArrowDown: 'down', k: 'up', ArrowUp: 'up', l: 'right', ArrowRight: 'right',
-    Enter: 'ok', o: 'ok', ' ': 'ok', b: 'back', Backspace: 'back',
-    H: 'home', K: 'menu', m: 'menu', p: 'play', '[': 'rewind', ']': 'forward',
-    '+': 'volup', '=': 'volup', '-': 'voldown', M: 'mute'
-  };
-  var padCount = '';
-  var padG = false;
-
-  var onScreen = {
-    up: ['bar', 1], down: ['bar', 0], bar: ['bar', -1], left: ['skip', -10], right: ['skip', 10],
-    ok: ['toggle'], play: ['toggle'], rewind: ['skip', -30], forward: ['skip', 30], back: ['stop'], stop: ['stop']
-  };
-
-  function lit(action) {
-    var b = padSheet.querySelector('button[data-a="' + action + '"]:not([hidden])');
-    if (b) { b.classList.add('lit'); setTimeout(function () { b.classList.remove('lit'); }, 140); }
+  function screenOnline(sc) {
+    return !!sc.lastSeen && Date.now() / 1000 - sc.lastSeen < SCREEN_ONLINE_S;
   }
 
-  function press(action, times) {
-    if (!padFor) return;
-    lit(action);
-    var n = times || 1;
-    if (padFor.screen) {
-      var c = onScreen[action];
-      if (!c) return;
-      var value = c[1] === undefined ? 0 : c[1] * (c[0] === 'skip' ? n : 1);
-      api('POST', '/api/screens/' + encodeURIComponent(padFor.screen.id) + '/control', { action: c[0], value: value })
-        .then(function () { padStatus.textContent = c[0] + (c[0] === 'skip' ? ' ' + (value > 0 ? '+' : '') + value + ' s' : ''); setTimeout(refreshScreens, 400); })
-        .catch(function (e) { padStatus.textContent = e.message; });
-      return;
-    }
-    api('POST', '/api/adb/' + encodeURIComponent(padFor.adb.name) + '/press', { action: action, times: n })
-      .then(function () { padStatus.textContent = action + (n > 1 ? ' ×' + n : ''); })
-      .catch(function (e) { padStatus.textContent = e.message; });
+  function castTargets() {
+    return state.screens.filter(function (sc) { return !sc.here; }).map(function (sc) {
+      return { id: sc.id, name: sc.name, kind: sc.kind, online: screenOnline(sc) };
+    });
   }
 
-  function screenNow() {
-    if (!padFor || !padFor.screen) return null;
-    var s = state.screens.filter(function (x) { return x.id === padFor.screen.id; })[0];
-    return s ? s.state || null : null;
+  function control(screen, action, value) {
+    return api('POST', '/api/screens/' + encodeURIComponent(screen.id) + '/control', { action: action, value: value === undefined ? 0 : value })
+      .then(function () { setTimeout(refreshScreens, 400); })
+      .catch(fail);
+  }
+
+  function screenState(id) {
+    var sc = state.screens.filter(function (x) { return x.id === id; })[0];
+    return sc ? sc.state || null : null;
   }
 
   function paintNow() {
-    var st = screenNow();
-    var title = document.getElementById('nowTitle');
-    if (!st || !st.title) {
-      title.textContent = 'nothing playing';
-      document.getElementById('nowFill').style.width = '0';
-      document.getElementById('nowPos').textContent = '';
-      document.getElementById('nowLeft').textContent = '';
-      return;
-    }
-    var pos = st.position + (st.playing ? (Date.now() - new Date(st.at).getTime()) / 1000 : 0);
+    if (!remoteSheet || !remoteSheet.shown || !remoteSheet.screen) return;
+    var st = screenState(remoteSheet.screen.id);
+    if (!st || !st.title) { remoteSheet.setNow({ title: 'nothing playing', position: 0, duration: 0, playing: false }); return; }
+    var pos = st.position + (st.playing && st.at ? (Date.now() - new Date(st.at).getTime()) / 1000 : 0);
     if (st.duration) pos = Math.min(pos, st.duration);
-    title.textContent = (st.playing ? '' : '‖ ') + st.title;
-    document.getElementById('nowFill').style.width = st.duration ? (100 * pos / st.duration) + '%' : '0';
-    document.getElementById('nowPos').textContent = clockOf(pos);
-    document.getElementById('nowLeft').textContent = st.duration ? '−' + clockOf(st.duration - pos) : '';
+    remoteSheet.setNow({ title: st.title, position: pos, duration: st.duration || 0, playing: !!st.playing });
   }
 
-  var nowTimer = null;
   var fastTimer = null;
 
-  function openRemote(target) {
-    padFor = target;
+  function openRemote(screen) {
+    if (!remoteSheet) return;
     closePanel();
-    padSheet.classList.toggle('screen', !!target.screen);
-    padSheet.querySelectorAll('.for-screen').forEach(function (n) { n.hidden = !target.screen; });
-    padSheet.querySelectorAll('.for-adb').forEach(function (n) { n.hidden = !target.adb; });
-    document.getElementById('padTitle').textContent = target.screen ? target.screen.name : (target.adb.tv || target.adb.name);
-    padStatus.textContent = target.screen ? 'h j k l, enter, p, [ ], : to cast, esc' : 'h j k l, enter, b back, gg home, i to type, esc';
-    padSheet.hidden = false;
-    document.body.classList.add('remoting');
-    clearInterval(nowTimer);
-    clearInterval(fastTimer);
-    if (target.screen) {
-      paintNow();
-      nowTimer = setInterval(paintNow, 500);
+    remoteSheet.show({ id: screen.id, name: screen.name, kind: screen.kind, online: screenOnline(screen) });
+    paintNow();
+  }
+
+  function closeRemote() {
+    if (remoteSheet && remoteSheet.shown) remoteSheet.hide();
+  }
+
+  function castHere() {
+    var it = cast.item();
+    if (it && it.key) return it.key;
+    var t = current();
+    return t && t.kind === 'media' ? t.media.key : null;
+  }
+
+  function paintCaster() {
+    if (!caster) return;
+    var targets = castTargets();
+    caster.setScreens(targets);
+    casterButton.hidden = !remote() || !targets.length;
+  }
+
+  if (online && bacchetta && !window.aguatvReceiver) {
+    caster = bacchetta.caster(casterButton, { screens: [] });
+    remoteSheet = bacchetta.remote({ boil: store.get('remoteBoil', false), step: 10, big: 30, host: document.body });
+    casterButton.addEventListener('bacchetta:cast', function (e) {
+      var target = state.screens.filter(function (x) { return x.id === e.detail.screen.id; })[0];
+      if (!target) return;
+      var key = castHere();
+      if (!key) { openRemote(target); return; }
+      castTo(target, key).then(function (r) {
+        say('cast ' + r.title + ' to ' + target.name);
+        openRemote(target);
+        setTimeout(refreshScreens, 800);
+      }).catch(fail);
+    });
+    remoteSheet.root.addEventListener('bacchetta:control', function (e) {
+      var d = e.detail;
+      if (d.screen) control(d.screen, d.action, d.value);
+    });
+    remoteSheet.root.addEventListener('bacchetta:path', function (e) {
+      var d = e.detail;
+      var target = d.screen && state.screens.filter(function (x) { return x.id === d.screen.id; })[0];
+      var ref = (d.path || '').trim().replace(/^\/+/, '');
+      if (!target || !ref) return;
+      castTo(target, ref).then(function (r) { say('cast ' + r.title + ' to ' + target.name); setTimeout(refreshScreens, 800); }).catch(fail);
+    });
+    remoteSheet.root.addEventListener('bacchetta:boil', function (e) { store.set('remoteBoil', !!e.detail.on); });
+    remoteSheet.root.addEventListener('bacchetta:show', function () {
+      clearInterval(fastTimer);
       fastTimer = setInterval(function () { if (!document.hidden) refreshScreens(); }, 2000);
-    }
+    });
+    remoteSheet.root.addEventListener('bacchetta:hide', function () { clearInterval(fastTimer); fastTimer = null; focus(); });
   }
-
-  function openPad(r) { openRemote({ adb: r }); }
-
-  function closePad() {
-    padSheet.hidden = true;
-    padFor = null;
-    clearInterval(nowTimer);
-    clearInterval(fastTimer);
-    document.body.classList.remove('remoting');
-    focus();
-  }
-
-  document.getElementById('nowTrack').addEventListener('click', function (e) {
-    if (!padFor || !padFor.screen) return;
-    var r = e.currentTarget.getBoundingClientRect();
-    var f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-    api('POST', '/api/screens/' + encodeURIComponent(padFor.screen.id) + '/control', { action: 'seekFraction', value: f })
-      .then(function () { padStatus.textContent = 'seek ' + Math.round(f * 100) + '%'; setTimeout(refreshScreens, 400); })
-      .catch(function (err) { padStatus.textContent = err.message; });
-  });
-
-  padSheet.querySelector('button[data-details]').addEventListener('click', function () {
-    if (!padFor || !padFor.screen) return;
-    var s = padFor.screen;
-    closePad();
-    openPanel('details', screenPanel({ screen: s }));
-  });
-
-  document.getElementById('padCast').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var input = e.target.querySelector('input');
-    var ref = input.value.trim();
-    if (!padFor || !padFor.screen || !ref) return;
-    castTo(padFor.screen, ref)
-      .then(function (r) { padStatus.textContent = 'cast ' + r.title; input.blur(); setTimeout(refreshScreens, 800); })
-      .catch(function (err) { padStatus.textContent = err.message; });
-  });
-
-  padSheet.querySelectorAll('button[data-a]').forEach(function (b) {
-    b.addEventListener('click', function () { press(b.dataset.a); });
-  });
-  padSheet.querySelector('button[data-close]').addEventListener('click', closePad);
-  document.getElementById('padText').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var input = e.target.querySelector('input');
-    if (!padFor || !padFor.adb) return;
-    if (!input.value) { press('enter'); return; }
-    api('POST', '/api/adb/' + encodeURIComponent(padFor.adb.name) + '/text', { text: input.value })
-      .then(function () { padStatus.textContent = 'typed'; input.value = ''; })
-      .catch(function (err) { padStatus.textContent = err.message; });
-  });
-
-  document.addEventListener('keydown', function (e) {
-    if (padSheet.hidden) return;
-    if (e.target.tagName === 'INPUT') {
-      if (e.key === 'Escape') { e.target.blur(); e.preventDefault(); }
-      return;
-    }
-    if (e.metaKey || e.altKey) return;
-    var k = e.key;
-    if (e.ctrlKey) {
-      if (k === 'u' || k === 'd') { e.preventDefault(); press(k === 'u' ? 'up' : 'down', 5 * (parseInt(padCount, 10) || 1)); padCount = ''; }
-      return;
-    }
-    e.preventDefault();
-    if (padG) {
-      padG = false;
-      padCount = '';
-      if (k === 'g') press('home');
-      else if (k === 's') press('settings');
-      else if (k === 'S') press('tvsettings');
-      return;
-    }
-    if (k === 'Escape' || k === 'q') { if (padCount) padCount = ''; else closePad(); return; }
-    if (/^[0-9]$/.test(k) && (k !== '0' || padCount)) { if (padCount.length < 2) padCount += k; return; }
-    if (k === 'g') { padG = true; return; }
-    if (k === 'i' || k === 'a' || k === ':') { padSheet.querySelector(padFor && padFor.screen ? '#padCast input' : '#padText input').focus(); return; }
-    var action = padKeys[k];
-    if (action) press(action, Math.min(parseInt(padCount, 10) || 1, 50));
-    padCount = '';
-  });
 
   function showHere() {
     if (!online || !state.me) { here.textContent = ''; return; }
@@ -937,11 +860,11 @@
       return api('GET', '/api/screens');
     }).then(function (l) {
       state.screens = l.screens || [];
-      state.remotes = l.remotes || [];
       registerTv();
+      paintNow();
       var seen = JSON.stringify([state.me.user, state.screens.map(function (x) {
-        return [x.id, x.name, x.kind, x.remote, x.here, !!(x.state && x.state.playing)];
-      }), state.remotes]);
+        return [x.id, x.name, x.kind, x.remote, x.here, !!(x.state && x.state.playing), screenOnline(x)];
+      })]);
       if (seen === screensSeen) return;
       screensSeen = seen;
       showHere();
@@ -949,7 +872,7 @@
       var p = state.panel;
       var t = current();
       if (p && p.screen && t && t.screen && p.screen === t.screen.id && document.activeElement !== fieldOf()) openPanel('details', detailsFor(t), true);
-      if (!padSheet.hidden) paintNow();
+      paintCaster();
     }).catch(function (e) { say(e.message); });
   }
 
@@ -1018,10 +941,10 @@
     refresh: function () { build(); if (state.panel && state.panel.kind === 'settings') openSettings(true); },
     resume: function () { tick(); build(); },
     pause: function () { clearTimeout(tickTimer); },
-    home: function () { cast.stop(); closePad(); closePanel(); first(); },
+    home: function () { cast.stop(); closeRemote(); closePanel(); first(); },
     back: function () {
       if (cast.open()) cast.stop();
-      else if (!padSheet.hidden) closePad();
+      else if (remoteSheet && remoteSheet.shown && !remoteSheet.minimised) closeRemote();
       else if (state.panel) closePanel();
       else first();
     },

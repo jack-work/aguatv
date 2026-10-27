@@ -290,8 +290,16 @@
     }).then(function (r) { return r.ok ? r.json() : null; }, function () { return null; });
   }
 
+  var REMOTE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'];
+
+  function pressKey(key) {
+    if (REMOTE_KEYS.indexOf(key) < 0) return;
+    (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true, cancelable: true }));
+  }
+
   function control(action, value) {
     if (action === 'stop') { stop(); return; }
+    if (action === 'key') { pressKey(value); return; }
     if (!filo) return;
     switch (action) {
       case 'toggle': filo.toggle(); break;

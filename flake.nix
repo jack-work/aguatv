@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    zanni.url = "github:jack-work/zanni/7a6562dc26a190de72bf9e1ae4dc6d8cf1c84881";
+    zanni.url = "github:jack-work/zanni/85a547a3671fbe5cce2a0c2d47f9e8f59b89360a";
     zanni.inputs.nixpkgs.follows = "nixpkgs";
     dumbtv = {
       url = "github:humblemuzzu/dumbtv";
@@ -104,6 +104,7 @@
             "phosphor"
             "fontpack"
             "filo"
+            "bacchetta"
           ];
         };
 
