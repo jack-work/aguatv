@@ -14,6 +14,9 @@ usage: aguatv install     build, sign and install, then take over HOME
        aguatv remote      a vim-keyed remote in the terminal (aguatv remote -h)
        aguatv player      install or update the video player app
        aguatv play <ref>  play an https URL on the TV; other references go through AGUATV_PRESIGN
+       aguatv receiver <app URL> <sign-in URL> [also]
+                          open a web app in the player's fenced WebView; also is a comma list of
+                          extra https origins the app may redirect through
 
 The TV is whatever adb is connected to; set ANDROID_SERIAL when there are several.
 EOF
@@ -245,6 +248,18 @@ cmd_play() {
   echo "playing $title"
 }
 
+cmd_receiver() {
+  local app=${1:-} auth=${2:-} also=${3:-} out
+  [[ $app == https://* && $auth == https://* ]] || die "receiver needs an https app URL and an https sign-in URL"
+  [[ -z $also || $also == https://* ]] || die "also must be https origins, comma separated"
+  need_device
+  player_current || install_player
+  sh_ input keyevent KEYCODE_WAKEUP >/dev/null
+  out=$(sh_ "am start -n tv.aguatv.player/.Receiver --es app $(squote "$app") --es auth $(squote "$auth") --es also $(squote "$also")" 2>&1)
+  [[ $out != *Error* ]] || die "the TV refused to start the receiver: $out"
+  echo "receiver opened at $app"
+}
+
 case ${1:-} in
   install) cmd_install ;;
   player) need_device; install_player ;;
@@ -252,6 +267,7 @@ case ${1:-} in
   status) cmd_status ;;
   remote) shift; exec "$AGUATV_REMOTE" "$@" ;;
   play) shift; cmd_play "$@" ;;
+  receiver) shift; cmd_receiver "$@" ;;
   apk) sign "${2:-aguatv.apk}"; echo "wrote ${2:-aguatv.apk}" ;;
   *) usage ;;
 esac

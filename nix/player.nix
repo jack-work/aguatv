@@ -31,6 +31,10 @@ pkgs.stdenv.mkDerivation {
       -classpath $jar -d work/classes @work/sources.txt
     find work/classes -name '*.class' > work/classes.txt
     $bt/d8 --release --min-api ${minSdk} --lib $jar --output work @work/classes.txt
+    mkdir -p work/test
+    javac --release 8 -Xlint:all -Xlint:-options -Werror -encoding UTF-8 -d work/test \
+      src/tv/aguatv/player/Fence.java test/tv/aguatv/player/FenceTest.java
+    java -cp work/test tv.aguatv.player.FenceTest
     (cd work && zip -q -X app.apk classes.dex)
     $bt/zipalign -f -p 4 work/app.apk work/aligned.apk
     runHook postBuild
