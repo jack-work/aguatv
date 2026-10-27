@@ -110,7 +110,7 @@
         web = pkgs.runCommand "aguatv-web-${version}" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           cp -r ${webPages} $out
           chmod -R u+w $out
-          python3 ${./nix/csp-hashes.py} $out
+          python3 ${./nix/externalize-scripts.py} $out
         '';
 
         apk = pkgs.stdenv.mkDerivation {

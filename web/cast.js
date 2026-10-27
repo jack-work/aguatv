@@ -5,16 +5,21 @@
   var video = document.getElementById('video');
   var bar = document.getElementById('castBar');
   var filo = null;
-  var title = '';
+  var hls = null;
+  var item = null;
   var listeners = [];
   var barShown = false;
+  var saved = 0;
+
+  function online() { return !window.host && !/[?&]preview\b/.test(location.search); }
 
   function state() {
     return {
-      title: title,
+      title: item ? item.title : '',
+      key: item ? item.key : '',
       position: video.currentTime || 0,
       duration: isFinite(video.duration) ? video.duration : 0,
-      playing: !!title && !video.paused
+      playing: !!item && !video.paused
     };
   }
 
@@ -23,26 +28,99 @@
     listeners.forEach(function (f) { f(s); });
   }
 
-  function close() {
-    if (filo) { filo.detach(); filo = null; }
+  function itemPath(key) {
+    return '/_media/api/item/' + key.split('/').map(encodeURIComponent).join('/');
+  }
+
+  function savePosition(force) {
+    if (!item || !online() || !isFinite(video.duration) || !video.duration) return;
+    var now = Date.now();
+    if (!force && now - saved < 10000) return;
+    saved = now;
+    fetch(itemPath(item.key), {
+      method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ position: video.currentTime || 0, duration: video.duration })
+    }).catch(function () {});
+  }
+
+  function unload() {
+    if (hls) { hls.destroy(); hls = null; }
     video.pause();
     video.removeAttribute('src');
+    video.removeAttribute('poster');
     video.load();
-    title = '';
+  }
+
+  function close() {
+    savePosition(true);
+    if (filo) { filo.detach(); filo = null; }
+    unload();
+    item = null;
     root.hidden = true;
+    root.classList.remove('audio');
     document.body.classList.remove('casting');
     tell();
   }
 
-  function play(e) {
+  function attach(src, master, resume) {
+    function start() {
+      if (resume) {
+        var seek = function () { video.removeEventListener('loadedmetadata', seek); try { video.currentTime = resume; } catch (e) {} };
+        video.addEventListener('loadedmetadata', seek);
+      }
+      video.play().catch(function () { if (filo) filo.showBar(true); });
+    }
+    if (master && video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = master;
+      return Promise.resolve(start());
+    }
+    if (master && window.MediaSource) {
+      return import('/_media/static/hls.light.min.mjs').then(function (mod) {
+        var Hls = mod.default || mod.Hls;
+        if (!Hls || !Hls.isSupported()) throw new Error('no hls');
+        hls = new Hls({ startPosition: resume || -1 });
+        hls.loadSource(master);
+        hls.attachMedia(video);
+        resume = 0;
+        start();
+      }).catch(function () {
+        video.src = src;
+        start();
+      });
+    }
+    video.src = src;
+    return Promise.resolve(start());
+  }
+
+  function show(it) {
     if (filo) filo.detach();
-    title = e.title || '';
+    unload();
+    item = it;
     root.hidden = false;
+    root.classList.toggle('audio', it.kind === 'audio');
     document.body.classList.add('casting');
-    video.src = e.url;
-    filo = window.zanni.filo.attach(bar, video, { globalKeys: true, autohide: 4000, title: title });
-    video.play().catch(function () { filo.showBar(true); });
+    if (it.poster) video.setAttribute('poster', it.poster);
+    var chapters = (it.chapters || []).map(function (c) { return { start: c.start, title: c.title }; });
+    filo = window.zanni.filo.attach(bar, video, { globalKeys: true, autohide: 4000, title: it.title, chapters: chapters, duration: it.duration || undefined });
+    var resume = it.position && it.position.position > 5 && (!it.duration || it.position.position < it.duration - 10) ? it.position.position : 0;
+    attach(it.original, it.state === 'ready' ? it.master : null, resume);
     tell();
+  }
+
+  function play(e) {
+    if (e.url) {
+      show({ key: e.url, title: e.title || '', original: e.url, kind: 'video', state: 'none' });
+      return Promise.resolve();
+    }
+    return fetch(itemPath(e.key), { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) throw new Error('that file is not yours to play (' + r.status + ')');
+      return r.json();
+    }).then(function (it) {
+      it.title = it.title || e.title || e.key;
+      it.kind = it.kind || (/\.(mp4|m4v|mov|mkv|webm)$/i.test(e.key) ? 'video' : 'audio');
+      if (e.poster) it.poster = e.poster;
+      show(it);
+    });
   }
 
   function control(action, value) {
@@ -65,11 +143,13 @@
 
   bar.addEventListener('filo:stop', close);
   bar.addEventListener('filo:bar', function (e) { barShown = !!(e.detail && e.detail.shown); });
-  bar.addEventListener('filo:seek', tell);
+  bar.addEventListener('filo:seek', function () { tell(); savePosition(true); });
   video.addEventListener('play', tell);
-  video.addEventListener('pause', tell);
-  video.addEventListener('ended', stop);
+  video.addEventListener('pause', function () { tell(); savePosition(true); });
+  video.addEventListener('timeupdate', function () { savePosition(false); });
+  video.addEventListener('ended', function () { savePosition(true); stop(); });
   video.addEventListener('click', function () { if (filo) filo.showBar(true); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) savePosition(true); });
   document.addEventListener('keydown', function (e) {
     if (filo && e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); stop(); }
   }, true);
