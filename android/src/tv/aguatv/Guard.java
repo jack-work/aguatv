@@ -55,9 +55,10 @@ public final class Guard extends AccessibilityService {
     }
 
     private static PendingIntent launch(Context c) {
-        Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                .setClass(c, Home.class)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        Intent i = Handoff.installed(c) ? Handoff.receiver()
+                : new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                        .setClass(c, Home.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
         return PendingIntent.getActivity(c, 0, i, PendingIntent.FLAG_UPDATE_CURRENT,
                 ActivityOptions.makeCustomAnimation(c, 0, 0).toBundle());
     }
@@ -101,6 +102,7 @@ public final class Guard extends AccessibilityService {
         if (!AMAZON.contentEquals(pkg)) {
             if ("com.android.systemui".contentEquals(pkg) || "android".contentEquals(pkg)) return;
             onAmazonHome = false;
+            if (Handoff.PLAYER.contentEquals(pkg)) uncover();
             if (!getPackageName().contentEquals(pkg)) arrived(this);
             return;
         }

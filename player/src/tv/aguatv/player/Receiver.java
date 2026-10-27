@@ -61,6 +61,7 @@ public final class Receiver extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService writes = Executors.newSingleThreadExecutor();
     private final Ops ops = new Ops(System::currentTimeMillis);
+    private final TvInputs inputs = new TvInputs(this);
     private FrameLayout root;
     private WebView web;
     private Fence fence;
@@ -336,10 +337,10 @@ public final class Receiver extends Activity {
             @Override
             public void onMessage(WebMessagePort port, WebMessage message) {
                 if (ports != pair) return;
-                Ops.Write w = ops.accept(message.getData());
-                if (w == null) return;
+                Ops.Request r = ops.accept(message.getData());
+                if (r == null) return;
                 writes.execute(() -> {
-                    String reply = write(w);
+                    String reply = r.local() ? Ops.answer(r, inputs) : write(r);
                     ui.post(() -> {
                         if (ports == pair) port.postMessage(new WebMessage(reply));
                     });
@@ -349,7 +350,12 @@ public final class Receiver extends Activity {
         view.postWebMessage(new WebMessage("aguatv-receiver", new WebMessagePort[] { pair[1] }), Uri.parse(fence.appOrigin));
     }
 
-    private String write(Ops.Write w) {
+    private void backToPage() {
+        WebMessagePort[] p = ports;
+        if (p != null) p[0].postMessage(new WebMessage("{\"event\":\"back\"}"));
+    }
+
+    private String write(Ops.Request w) {
         String id = Long.toString((long) w.id);
         for (int attempt = 0; attempt < 2; attempt++) {
             String token = accessToken(attempt > 0);
@@ -571,10 +577,10 @@ public final class Receiver extends Activity {
                 return true;
             }
         }
-        if (web != null && e.getKeyCode() == KeyEvent.KEYCODE_BACK) {
-            if (e.getAction() == KeyEvent.ACTION_UP) {
+        if (e.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            if (web != null && e.getAction() == KeyEvent.ACTION_UP) {
                 if (web.canGoBack()) web.goBack();
-                else finish();
+                else backToPage();
             }
             return true;
         }

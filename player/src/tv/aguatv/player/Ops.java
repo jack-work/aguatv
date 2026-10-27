@@ -1,5 +1,6 @@
 package tv.aguatv.player;
 
+import java.util.List;
 import java.util.Map;
 
 final class Ops {
@@ -7,20 +8,47 @@ final class Ops {
         long millis();
     }
 
-    static final class Write {
+    static final class Request {
         final double id;
         final String path;
         final String body;
+        final String input;
 
-        Write(double id, String path, String body) {
+        Request(double id, String path, String body, String input) {
             this.id = id;
             this.path = path;
             this.body = body;
+            this.input = input;
         }
+
+        boolean local() {
+            return path == null;
+        }
+    }
+
+    static final class Input {
+        final String id;
+        final String label;
+        final boolean hdmi;
+        final boolean connected;
+
+        Input(String id, String label, boolean hdmi, boolean connected) {
+            this.id = id;
+            this.label = label;
+            this.hdmi = hdmi;
+            this.connected = connected;
+        }
+    }
+
+    interface Inputs {
+        List<Input> list();
+
+        void open(String id);
     }
 
     static final String REGISTER = "/_media/api/me";
     static final String STATE = "/_media/api/me/state";
+    private static final int MAX_INPUT_ID = 256;
     private static final double BURST = 4, PER_SECOND = 2;
 
     private final Clock clock;
@@ -32,7 +60,7 @@ final class Ops {
         this.last = clock.millis();
     }
 
-    synchronized Write accept(String message) {
+    synchronized Request accept(String message) {
         Object parsed = Json.parse(message);
         if (!(parsed instanceof Map)) return null;
         Map<?, ?> m = (Map<?, ?>) parsed;
@@ -40,19 +68,50 @@ final class Ops {
         if (!(id instanceof Double) || !(body instanceof Map) || m.size() != 3) return null;
         double n = (Double) id;
         if (n != Math.rint(n) || n < 0 || n > 1e9) return null;
-        String out;
-        String path;
+        Map<?, ?> b = (Map<?, ?>) body;
+        Request r;
         if ("register".equals(op)) {
-            out = register((Map<?, ?>) body);
-            path = REGISTER;
+            String out = register(b);
+            r = out == null ? null : new Request(n, REGISTER, out, null);
         } else if ("state".equals(op)) {
-            out = state((Map<?, ?>) body);
-            path = STATE;
+            String out = state(b);
+            r = out == null ? null : new Request(n, STATE, out, null);
+        } else if ("inputs".equals(op)) {
+            r = b.isEmpty() ? new Request(n, null, null, null) : null;
+        } else if ("input".equals(op)) {
+            Object id1 = b.get("input");
+            boolean ok = b.size() == 1 && id1 instanceof String && !((String) id1).isEmpty()
+                && ((String) id1).length() <= MAX_INPUT_ID;
+            r = ok ? new Request(n, null, null, (String) id1) : null;
         } else {
             return null;
         }
-        if (out == null || !spend()) return null;
-        return new Write(n, path, out);
+        if (r == null || !spend()) return null;
+        return r;
+    }
+
+    static String answer(Request r, Inputs tv) {
+        String id = Long.toString((long) r.id);
+        List<Input> listed = tv.list();
+        if (r.input == null) {
+            StringBuilder out = new StringBuilder("[");
+            for (Input in : listed) {
+                if (out.length() > 1) out.append(',');
+                out.append("{\"id\":").append(Json.quote(in.id))
+                    .append(",\"label\":").append(Json.quote(in.label))
+                    .append(",\"hdmi\":").append(in.hdmi)
+                    .append(",\"connected\":").append(in.connected).append('}');
+            }
+            out.append(']');
+            return "{\"id\":" + id + ",\"status\":200,\"body\":" + Json.quote(out.toString()) + "}";
+        }
+        for (Input in : listed) {
+            if (in.id.equals(r.input)) {
+                tv.open(in.id);
+                return "{\"id\":" + id + ",\"status\":204}";
+            }
+        }
+        return "{\"id\":" + id + ",\"status\":404}";
     }
 
     private boolean spend() {

@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.media.tv.TvContract;
 import android.media.tv.TvInputManager;
 import android.net.Uri;
 import android.os.Bundle;
@@ -66,6 +67,10 @@ public final class Home extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        if (Handoff.go(this)) {
+            finish();
+            return;
+        }
         root = new FrameLayout(this);
         root.setBackgroundColor(STAGE);
         setContentView(root);
@@ -188,12 +193,7 @@ public final class Home extends Activity {
 
     void openInput(String inputId) {
         ui.post(() -> {
-            Intent i = Input.intent(this, inputId, Shelf.inputLabel(this, inputId));
-            if (i.getComponent() != null && getPackageName().equals(i.getComponent().getPackageName())) {
-                startActivity(i);
-            } else {
-                launch(i);
-            }
+            launch(new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(inputId)));
         });
     }
 
@@ -261,6 +261,10 @@ public final class Home extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (Handoff.go(this)) {
+            finish();
+            return;
+        }
         String panel = intent.getStringExtra(EXTRA_OPEN);
         if (panel == null) call("home");
         else if (ready) open(panel);
@@ -295,7 +299,7 @@ public final class Home extends Activity {
 
     @Override
     protected void onDestroy() {
-        unregisterReceiver(packages);
+        if (root != null) unregisterReceiver(packages);
         if (tv != null) tv.unregisterCallback(inputs);
         if (web != null) {
             root.removeView(web);

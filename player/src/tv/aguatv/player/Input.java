@@ -1,9 +1,7 @@
-package tv.aguatv;
+package tv.aguatv.player;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.ResolveInfo;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -23,15 +21,12 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-import java.util.List;
-
 public final class Input extends Activity {
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
-    private static final String EXTRA_ID = "input", EXTRA_NAME = "name";
+    static final String EXTRA_ID = "input";
     private static final long NAME_MS = 2500, SIGNAL_MS = 6000;
     private static final String FAILED = "Could not open input", NO_SIGNAL = "No signal";
-    private static final String AMAZON_LIVE_TV = "com.amazon.tv.livetv";
     private static final int INK = 0xFFF0DFC8, MUTED = 0xFFA5887B, VEIL = 0xB31A0D0F;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -67,25 +62,11 @@ public final class Input extends Activity {
         }
     };
 
-    static Intent intent(Context c, String inputId, CharSequence label) {
-        Intent passthrough = passthrough(inputId);
-        List<ResolveInfo> apps = c.getPackageManager().queryIntentActivities(passthrough, 0);
-        if (apps.size() == 1 && !isLiveTv(apps.get(0))) return passthrough;
-        return new Intent(c, Input.class).putExtra(EXTRA_ID, inputId).putExtra(EXTRA_NAME, label);
-    }
-
-    static Intent passthrough(String inputId) {
-        return new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(inputId));
-    }
-
-    private static boolean isLiveTv(ResolveInfo app) {
-        return app.activityInfo != null && AMAZON_LIVE_TV.equals(app.activityInfo.packageName);
-    }
-
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        id = getIntent().getStringExtra(EXTRA_ID);
+        Ops.Input chosen = TvInputs.find(this, getIntent().getStringExtra(EXTRA_ID));
+        id = chosen == null ? null : chosen.id;
         getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
 
         FrameLayout root = new FrameLayout(this);
@@ -101,7 +82,7 @@ public final class Input extends Activity {
         root.addView(status, new FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER));
 
         name = text(20, INK);
-        name.setText(getIntent().getCharSequenceExtra(EXTRA_NAME));
+        name.setText(chosen == null ? "" : chosen.label);
         name.setPadding(dp(22), dp(10), dp(22), dp(10));
         GradientDrawable plate = new GradientDrawable();
         plate.setColor(VEIL);
