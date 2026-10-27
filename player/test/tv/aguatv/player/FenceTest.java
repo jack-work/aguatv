@@ -35,6 +35,12 @@ public final class FenceTest {
         check("no other host loads anything", !f.fetches("https://keel.example.org/x.js") && !f.fetches("https://cdn.example.com/x.js") && !f.fetches("http://files.example.org/x"));
         check("an app without a path is refused", Fence.of("https://files.example.org/", "https://auth.example.org", null) == null);
         check("an http app is refused", Fence.of("http://files.example.org/_media/app/home", "https://auth.example.org", null) == null);
+        String[] mine = { "https://files.example.org/_media/app/home", "https://auth.example.org", "https://tv.example.org" };
+        String[] theirs = { "https://evil.example.net/_media/app/home", "https://evil.example.net", "" };
+        check("the first configuration is taken", Fence.firstUse(new String[3], mine) == mine);
+        check("a second configuration is ignored", Fence.firstUse(mine, theirs) == mine);
+        check("an unusable first configuration is not stored", Fence.firstUse(new String[3], new String[] { "http://x/y", "https://a", null }) == null);
+        check("with nothing stored and nothing given there is no app", Fence.firstUse(new String[3], new String[3]) == null);
         if (failures > 0) {
             System.out.println(failures + " FAILED");
             System.exit(1);

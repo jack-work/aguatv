@@ -40,6 +40,12 @@ final class Fence {
         return new Fence(app.trim(), origin(a), "/" + first + "/", origin(s), Collections.unmodifiableList(extra));
     }
 
+    static String[] firstUse(String[] stored, String[] given) {
+        if (stored != null && stored[0] != null) return of(stored[0], stored[1], stored[2]) == null ? null : stored;
+        if (given == null || of(given[0], given[1], given[2]) == null) return null;
+        return given;
+    }
+
     boolean navigates(String url) {
         URI u = parse(url);
         if (u == null) return false;

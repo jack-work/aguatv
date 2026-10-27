@@ -16,7 +16,8 @@ usage: aguatv install     build, sign and install, then take over HOME
        aguatv play <ref>  play an https URL on the TV; other references go through AGUATV_PRESIGN
        aguatv receiver <app URL> <sign-in URL> [also]
                           open a web app in the player's fenced WebView; also is a comma list of
-                          extra https origins the app may redirect through
+                          extra https origins the app may redirect through. The first
+                          configuration sticks; to change it: adb shell pm clear tv.aguatv.player
 
 The TV is whatever adb is connected to; set ANDROID_SERIAL when there are several.
 EOF

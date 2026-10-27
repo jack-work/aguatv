@@ -41,16 +41,14 @@ public final class Receiver extends Activity {
         super.onCreate(state);
         WebView.setWebContentsDebuggingEnabled(false);
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String[] stored = { prefs.getString(EXTRA_APP, null), prefs.getString(EXTRA_AUTH, null), prefs.getString(EXTRA_ALSO, null) };
         Intent intent = getIntent();
-        Fence given = Fence.of(intent.getStringExtra(EXTRA_APP), intent.getStringExtra(EXTRA_AUTH), intent.getStringExtra(EXTRA_ALSO));
-        if (given != null) {
-            prefs.edit()
-                .putString(EXTRA_APP, intent.getStringExtra(EXTRA_APP))
-                .putString(EXTRA_AUTH, intent.getStringExtra(EXTRA_AUTH))
-                .putString(EXTRA_ALSO, intent.getStringExtra(EXTRA_ALSO))
-                .apply();
+        String[] given = { intent.getStringExtra(EXTRA_APP), intent.getStringExtra(EXTRA_AUTH), intent.getStringExtra(EXTRA_ALSO) };
+        String[] chosen = Fence.firstUse(stored, given);
+        if (chosen != null && chosen != stored) {
+            prefs.edit().putString(EXTRA_APP, chosen[0]).putString(EXTRA_AUTH, chosen[1]).putString(EXTRA_ALSO, chosen[2]).apply();
         }
-        fence = Fence.of(prefs.getString(EXTRA_APP, null), prefs.getString(EXTRA_AUTH, null), prefs.getString(EXTRA_ALSO, null));
+        fence = chosen == null ? null : Fence.of(chosen[0], chosen[1], chosen[2]);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(STAGE);
@@ -132,15 +130,6 @@ public final class Receiver extends Activity {
         WebResourceResponse r = new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
         r.setStatusCodeAndReasonPhrase(403, "Refused");
         return r;
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        if (Fence.of(intent.getStringExtra(EXTRA_APP), intent.getStringExtra(EXTRA_AUTH), intent.getStringExtra(EXTRA_ALSO)) != null) {
-            setIntent(intent);
-            recreate();
-        }
     }
 
     @Override
