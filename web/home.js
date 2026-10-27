@@ -38,6 +38,7 @@
     ready: function () {}
   };
   var onDevice = !!window.host;
+  var tvShell = /; wv\)/.test(navigator.userAgent);
   var previewing = /[?&]preview\b/.test(location.search);
   var host = window.host || (previewing ? preview : bare);
   var online = !onDevice && !previewing;
@@ -297,14 +298,16 @@
   function build() {
     var keep = state.rows[state.row] && state.rows[state.row].tiles[state.col];
     var keepId = keep ? keep.kind + ':' + keep.id : null;
+    var inputs = { title: 'Inputs', tiles: inputTiles() };
     var rows = [
-      { title: 'Screens', tiles: screenTiles() },
+      { title: 'Screens', tiles: screenTiles() }
+    ].concat(tvShell ? [inputs] : []).concat([
       { title: state.query ? 'Videos matching “' + state.query + '”' : 'Videos', tiles: mediaTiles('video') },
-      { title: state.query ? 'Audio matching “' + state.query + '”' : 'Audio', tiles: mediaTiles('audio') },
-      { title: 'Inputs', tiles: inputTiles() },
+      { title: state.query ? 'Audio matching “' + state.query + '”' : 'Audio', tiles: mediaTiles('audio') }
+    ]).concat(tvShell ? [] : [inputs]).concat([
       { title: 'Apps', tiles: appTiles() },
       { title: 'Settings', tiles: actionTiles() }
-    ].filter(function (r) { return r.tiles.length; });
+    ]).filter(function (r) { return r.tiles.length; });
 
     shelf.textContent = '';
     rows.forEach(function (r) {
@@ -383,6 +386,14 @@
       state.col = Math.max(0, Math.min(len - 1, state.col + dc));
     }
     focus();
+    reveal();
+  }
+
+  function reveal() {
+    var r = state.rows[state.row];
+    if (!r || !online) return;
+    var n = tvShell ? r.strip.parentNode : r.nodes[state.col];
+    n.scrollIntoView({ block: 'nearest' });
   }
 
   function toggleHidden(id) {
@@ -788,10 +799,10 @@
     if (!caster) return;
     var targets = castTargets();
     caster.setScreens(targets);
-    casterButton.hidden = !remote() || !targets.length;
+    document.body.classList.toggle('can-cast', remote() && targets.length > 0);
   }
 
-  if (online && bacchetta && !window.aguatvReceiver) {
+  if (online && bacchetta && !tvShell) {
     caster = bacchetta.caster(casterButton, { screens: [] });
     remoteSheet = bacchetta.remote({ boil: store.get('remoteBoil', false), step: 10, big: 30, host: document.body });
     casterButton.addEventListener('bacchetta:cast', function (e) {
@@ -841,7 +852,6 @@
     }).then(listen).catch(function (e) { say(e.message); }).then(function () { registering = false; });
   }
 
-  var tvShell = /; wv\)/.test(navigator.userAgent);
   var receiverWait = new Promise(function (resolve) {
     if (!tvShell || window.aguatvReceiver) { resolve(); return; }
     window.addEventListener('aguatv:receiver', resolve);
@@ -953,6 +963,7 @@
   };
 
   document.body.classList.toggle('online', online);
+  document.body.classList.toggle('receiver', tvShell);
   if (online) ['here', 'date', 'hint'].forEach(function (id) { document.getElementById(id).classList.add('boil-text'); });
   applyPrefs();
   tick();

@@ -311,7 +311,11 @@ body.online .row-tiles { flex-wrap: wrap; }
 
 .cast[hidden] { display: none; }
 
-.caster-slot { position: fixed; top: 0.8rem; right: 0.8rem; z-index: 9; }
+.caster-slot { display: none; position: fixed; top: 0.8rem; right: 0.8rem; z-index: 9; }
+body.can-cast .caster-slot { display: block; }
+body.can-cast .masthead { padding-right: 9rem; }
+body.online.receiver .search { display: none; }
+body.online.receiver .row-tiles { flex-wrap: nowrap; }
 
 .cast-note {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;

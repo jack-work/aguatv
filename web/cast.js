@@ -202,7 +202,9 @@
     root.hidden = false;
     document.body.classList.add('casting');
     if (it.poster) video.setAttribute('poster', it.poster);
-    note.textContent = it.state === 'failed' ? 'This video could not be prepared for the TV' : 'Preparing this for the TV';
+    note.textContent = it.state === 'failed' ? 'This video could not be prepared for the TV'
+      : it.state === 'queued' ? 'Preparing this for the TV'
+      : 'Not ready for the TV yet: cast it from your phone to prepare it';
     note.hidden = false;
     tell();
     if (it.state === 'failed') return;
