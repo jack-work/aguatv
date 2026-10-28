@@ -89,6 +89,8 @@
   var caster = null;
   var remoteSheet = null;
   var SCREEN_ONLINE_S = 120;
+  var SCREENS_EVERY_MS = 5000;
+  var SCREENS_EVERY_TV_MS = 30000;
 
   function api(method, path, body) {
     var receiver = window.aguatvReceiver;
@@ -890,6 +892,7 @@
   }
 
   var libraryAsk = 0;
+  var librarySeen = '';
 
   function refreshLibrary() {
     if (!online) return Promise.resolve();
@@ -903,8 +906,12 @@
       return r.json();
     }).then(function (l) {
       if (ask !== libraryAsk) return;
-      state.library = l.items || [];
+      var items = l.items || [];
+      var seen = JSON.stringify(items);
       if (state.libraryRefused) say('you may not list every file: choose a library folder under Settings');
+      if (seen === librarySeen) return;
+      librarySeen = seen;
+      state.library = items;
       build();
     }).catch(function (e) { say(e.message); });
   }
@@ -983,7 +990,7 @@
     window.addEventListener('aguatv:back', function () { window.aguatv.back(); });
     if (window.aguatvReceiver) refreshInputs();
     setInterval(function () { if (!resting()) refreshInputs(); }, 30000);
-    setInterval(function () { if (!resting()) refreshScreens(); }, 5000);
+    setInterval(function () { if (!resting()) refreshScreens(); }, tvShell ? SCREENS_EVERY_TV_MS : SCREENS_EVERY_MS);
   }
   requestAnimationFrame(function () {
     requestAnimationFrame(function () { host.ready(); });
