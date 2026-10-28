@@ -372,7 +372,7 @@
     var r = state.rows[state.row];
     if (r) {
       var n = r.nodes[state.col];
-      var over = n.offsetLeft + n.offsetWidth - r.strip.parentNode.clientWidth;
+      var over = online && !tvShell ? 0 : n.offsetLeft + n.offsetWidth - r.strip.parentNode.clientWidth;
       r.strip.style.transform = over > 0 ? 'translateX(' + (-over - 16) + 'px)' : '';
     }
     if (state.panel) return;
