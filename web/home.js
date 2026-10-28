@@ -273,16 +273,28 @@
     stage.classList.toggle('phosphor-soft', prefs.scanlines);
   }
 
+  var arts = {};
+
+  function artFor(url) {
+    var img = arts[url];
+    if (!img) {
+      img = el('img', 'art');
+      img.alt = '';
+      img.onerror = function () { img.remove(); delete arts[url]; };
+      img.src = url;
+      arts[url] = img;
+    }
+    return img;
+  }
+
   function tileNode(t) {
     var n = el('div', 'tile' + (t.kind === 'action' ? ' action' : ''));
     if (t.kind === 'app' && isHidden(t.id)) n.classList.add('hidden-app');
     n.appendChild(el('span', 'label' + boiled, t.label));
     if (t.art) {
-      var img = el('img', 'art');
-      img.alt = '';
-      img.onload = function () { n.classList.add('has-art'); };
-      img.onerror = function () { img.remove(); };
-      img.src = t.art;
+      var img = artFor(t.art);
+      if (img.complete && img.naturalWidth) n.classList.add('has-art');
+      else img.onload = function () { n.classList.add('has-art'); };
       n.appendChild(img);
     }
     if (t.kind === 'input' || t.kind === 'screen' || t.kind === 'adb') n.appendChild(el('span', 'dot' + (t.live ? ' live' : '')));
