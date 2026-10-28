@@ -864,7 +864,7 @@
   }
 
   function showHere() {
-    if (!online || !state.me || tvShell) { here.textContent = ''; return; }
+    if (!online || !state.me) { here.textContent = ''; return; }
     var s = state.me.screen;
     here.textContent = state.me.user + (s ? ' · ' + s.name + (s.remote ? ' · remote' : '') : ' · not a screen');
   }
