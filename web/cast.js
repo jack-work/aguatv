@@ -249,6 +249,7 @@
       chapters: chapters,
       duration: it.duration || undefined,
       thumbnails: it.thumbnails || undefined,
+      waveform: it.waveform || undefined,
       qualities: qualities || undefined,
       quality: qualities ? 'auto' : undefined
     });
