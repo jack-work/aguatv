@@ -114,17 +114,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1793136665,
-        "narHash": "sha256-0+YqhUG4FTa18cuFKa0wvRa2wklnD9DgRUwt/lPjfxA=",
+        "lastModified": 1793153332,
+        "narHash": "sha256-799MLTRGBnl/4JBe3eNK/6I2yPWWJZfhH+0suvJBomg=",
         "owner": "jack-work",
         "repo": "zanni",
-        "rev": "85a547a3671fbe5cce2a0c2d47f9e8f59b89360a",
+        "rev": "8015f7f1e32e655d47bc34ac22451ce0e29a216e",
         "type": "github"
       },
       "original": {
         "owner": "jack-work",
         "repo": "zanni",
-        "rev": "85a547a3671fbe5cce2a0c2d47f9e8f59b89360a",
+        "rev": "8015f7f1e32e655d47bc34ac22451ce0e29a216e",
         "type": "github"
       }
     }
