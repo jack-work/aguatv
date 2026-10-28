@@ -98,6 +98,9 @@
 
   function setView(v, key, how) {
     view = v;
+    var listening = v === 'about' && !!item && item.kind === 'audio' && !!filo;
+    if (filo && item && item.kind === 'audio' && online() && !onTv() && filo.docked === listening) filo.dock(!listening);
+    document.body.classList.toggle('listening', listening);
     document.body.classList.toggle('watching', v === 'watch');
     document.body.classList.toggle('away', v !== 'gallery');
     if (how && online()) {
@@ -229,7 +232,7 @@
     var web = online();
     var tv = onTv();
     var audio = it.kind === 'audio';
-    var docked = web && !tv && (audio || (wasDocked && how === 'cast'));
+    var docked = web && !tv && ((audio && how !== 'about') || (wasDocked && how === 'cast'));
     if (!web || tv) document.body.classList.add('casting');
     if (it.poster) video.setAttribute('poster', it.poster);
     var chapters = (it.chapters || []).map(function (c) { return { start: c.start, title: c.title }; });

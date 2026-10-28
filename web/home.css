@@ -389,6 +389,7 @@ html:has(body.away) { overflow-y: auto; }
 body.away .stage { display: none; }
 body.away { overflow: visible; }
 body.watching .cast { position: relative; inset: auto; z-index: auto; }
+body.listening .cast { position: relative; inset: auto; z-index: auto; background: transparent; }
 body.watching #cast:not(:fullscreen) > video { max-height: 75vh; object-fit: contain; }
 
 .details {
