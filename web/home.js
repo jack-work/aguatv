@@ -85,6 +85,9 @@
   var drawer = document.getElementById('drawer');
   var here = document.getElementById('here');
   var casterButton = document.getElementById('caster');
+  var header = document.getElementById('proscenium');
+  var tvMode = tvShell || !online;
+  var bar = null;
   var bacchetta = window.zanni && window.zanni.bacchetta;
   var caster = null;
   var remoteSheet = null;
@@ -416,6 +419,10 @@
     store.set('hidden', state.hidden);
   }
 
+  function clearFocus() {
+    state.rows.forEach(function (r) { r.nodes.forEach(function (n) { n.classList.remove('focus'); }); });
+  }
+
   function first() {
     state.row = 0;
     state.col = 0;
@@ -720,13 +727,17 @@
       else if (e.key === 'Enter' && state.panel) { e.target.blur(); runAction(e); e.preventDefault(); }
       return;
     }
+    if (e.defaultPrevented || header.contains(e.target)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (state.panel) {
       if (panelKey(e.key, e)) e.preventDefault();
       return;
     }
     switch (e.key) {
-      case 'ArrowUp': case 'k': move(-1, 0); break;
+      case 'ArrowUp': case 'k':
+        if (state.row === 0 && bar && tvMode && bar.enter()) { clearFocus(); break; }
+        move(-1, 0);
+        break;
       case 'ArrowDown': case 'j': move(1, 0); break;
       case 'ArrowLeft': case 'h': move(0, -1); break;
       case 'ArrowRight': case 'l': move(0, 1); break;
@@ -735,7 +746,7 @@
         if (t) t.open(e);
         break;
       case 'i': case 'ContextMenu': openDetails(); break;
-      case '/': if (online) { search.focus(); break; } return;
+      case '/': if (online && !tvMode) { if (bar) bar.open('search'); else search.focus(); break; } return;
       case 's': openSettings(); break;
       case 'Escape': first(); break;
       default: return;
@@ -853,9 +864,16 @@
   }
 
   function showHere() {
-    if (!online || !state.me) { here.textContent = ''; return; }
+    if (!online || !state.me || tvShell) { here.textContent = ''; return; }
     var s = state.me.screen;
     here.textContent = state.me.user + (s ? ' · ' + s.name + (s.remote ? ' · remote' : '') : ' · not a screen');
+  }
+
+  if (caster) casterButton.parentNode.setAttribute('data-slot', 'action');
+  else casterButton.remove();
+  if (window.zanni && window.zanni.proscenio) {
+    bar = window.zanni.proscenio.attach(header, tvMode ? { mode: 'tv' } : { scroller: window, keys: { search: false } });
+    header.addEventListener('proscenio:leave', function () { focus(); });
   }
 
   var screensSeen = '';

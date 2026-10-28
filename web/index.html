@@ -20,17 +20,17 @@
 <!-- zanni:fontpack -->
 <!-- zanni:filo -->
 <!-- zanni:bacchetta -->
+<!-- zanni:proscenio -->
+
+<header class="proscenium" id="proscenium">
+  <span class="mark boil-text-squiggle" data-slot="mark">aguatv</span>
+  <span class="here" id="here" data-slot="identity"></span>
+  <input class="search" id="search" data-slot="search" type="search" placeholder="search titles, paths, tags" aria-label="search" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+  <span class="when" data-slot="status"><span id="clock" class="clock"></span> <span id="date" class="date"></span></span>
+  <button class="caster" id="caster" type="button">cast</button>
+</header>
 
 <main class="stage phosphor-host phosphor-soft">
-  <header class="masthead">
-    <h1 class="mark fontpack-display boil-text-squiggle">aguatv</h1>
-    <div class="here fontpack-mono" id="here"></div>
-    <input class="search fontpack-mono" id="search" type="search" placeholder="search titles, paths, tags" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
-    <div class="when">
-      <div id="clock" class="clock fontpack-display boil-text"></div>
-      <div id="date" class="date fontpack-mono"></div>
-    </div>
-  </header>
 
   <section class="shelf" id="shelf"></section>
   <section class="canvas" id="canvas"></section>
@@ -39,8 +39,6 @@
   <aside class="drawer" id="drawer"></aside>
 </main>
 
-
-<div class="caster-slot"><button class="caster" id="caster" type="button">cast</button></div>
 
 <section class="cast" id="cast" data-filo hidden>
   <video id="video" playsinline preload="metadata"></video>
