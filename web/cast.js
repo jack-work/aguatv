@@ -305,6 +305,8 @@
   function control(action, value) {
     if (action === 'stop') { stop(); return; }
     if (action === 'key') { pressKey(value); return; }
+    if (action === 'back') { if (window.aguatv) window.aguatv.back(); return; }
+    if (action === 'home') { if (window.aguatv) window.aguatv.home(); return; }
     if (!filo) return;
     switch (action) {
       case 'toggle': filo.toggle(); break;
