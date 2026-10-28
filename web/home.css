@@ -316,6 +316,7 @@ body.can-cast .caster-slot { display: block; }
 body.can-cast .masthead { padding-right: 9rem; }
 body.online.receiver .search { display: none; }
 body.online.receiver .row-tiles { flex-wrap: nowrap; }
+body.receiver.casting .stage { display: none; }
 
 .cast-note {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;

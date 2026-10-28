@@ -167,7 +167,7 @@
       var load = loads;
       return loadHls().then(function (Hls) {
         if (load !== loads) return;
-        hls = new Hls({ startPosition: at || -1 });
+        hls = new Hls({ startPosition: at || -1, maxMaxBufferLength: 60, backBufferLength: 30 });
         hls.loadSource(master);
         hls.attachMedia(video);
         at = 0;

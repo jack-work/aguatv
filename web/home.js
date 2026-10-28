@@ -58,8 +58,8 @@
   };
 
   var prefs = {
-    still: store.get('still', false),
-    scanlines: store.get('scanlines', true),
+    boil: store.get('boil', false),
+    scanlines: store.get('scanlines', !tvShell),
     clock24: store.get('clock24', false),
     showHidden: store.get('showHidden', false)
   };
@@ -266,7 +266,7 @@
   }
 
   function applyPrefs() {
-    document.body.classList.toggle('still', prefs.still);
+    document.body.classList.toggle('still', !prefs.boil);
     stage.classList.toggle('phosphor-host', prefs.scanlines);
     stage.classList.toggle('phosphor-soft', prefs.scanlines);
   }
@@ -564,7 +564,7 @@
       title: 'aguatv',
       rows: [['', onDevice ? 'Saved on this TV. Hidden apps: ' + state.hidden.length + '.' : 'Saved in this browser.']],
       actions: [
-        flip('still', 'Boil: off', 'Boil: on'),
+        { label: prefs.boil ? 'Boil: on' : 'Boil: off', run: function () { store.set('boil', !prefs.boil); location.reload(); } },
         flip('scanlines', 'Scanlines: on', 'Scanlines: off'),
         flip('clock24', 'Clock: 24 hour', 'Clock: 12 hour'),
         flip('showHidden', 'Hidden apps: shown', 'Hidden apps: kept hidden')
@@ -736,7 +736,10 @@
     'September', 'October', 'November', 'December'];
 
   var tickTimer = null;
+  function resting() { return document.hidden || (tvShell && cast.open()); }
+
   function tick() {
+    if (resting()) { clearTimeout(tickTimer); tickTimer = setTimeout(tick, 60000); return; }
     var d = new Date();
     var h = prefs.clock24 ? pad(d.getHours()) : (d.getHours() % 12 || 12);
     document.getElementById('clock').textContent = h + ':' + pad(d.getMinutes());
@@ -944,7 +947,7 @@
     })();
   }
 
-  cast.onChange(function () { report(true); });
+  cast.onChange(function () { report(true); if (tvShell && !cast.open()) tick(); });
   document.getElementById('video').addEventListener('timeupdate', function () { report(false); });
 
   window.aguatv = {
@@ -962,6 +965,10 @@
     settings: function () { openSettings(); }
   };
 
+  if (!prefs.boil) {
+    var boilDriver = document.getElementById('zanni-boil-config');
+    if (boilDriver) boilDriver.remove();
+  }
   document.body.classList.toggle('online', online);
   document.body.classList.toggle('receiver', tvShell);
   if (online) ['here', 'date', 'hint'].forEach(function (id) { document.getElementById(id).classList.add('boil-text'); });
@@ -970,13 +977,13 @@
   build();
   if (online) {
     refreshLibrary().then(function () { return cast.start(); }).catch(fail);
-    setInterval(function () { if (!document.hidden) refreshLibrary(); }, 60000);
+    setInterval(function () { if (!resting()) refreshLibrary(); }, 60000);
     refreshScreens().then(listen);
     window.addEventListener('aguatv:receiver', function () { refreshInputs(); });
     window.addEventListener('aguatv:back', function () { window.aguatv.back(); });
     if (window.aguatvReceiver) refreshInputs();
-    setInterval(function () { if (!document.hidden) refreshInputs(); }, 30000);
-    setInterval(function () { if (!document.hidden) refreshScreens(); }, 5000);
+    setInterval(function () { if (!resting()) refreshInputs(); }, 30000);
+    setInterval(function () { if (!resting()) refreshScreens(); }, 5000);
   }
   requestAnimationFrame(function () {
     requestAnimationFrame(function () { host.ready(); });
