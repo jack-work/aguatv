@@ -105,6 +105,7 @@
             "fontpack"
             "filo"
             "bacchetta"
+            "proscenio"
           ];
         };
 
