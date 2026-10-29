@@ -344,8 +344,8 @@ body.watching .cast { position: relative; inset: auto; z-index: auto; }
 body.listening .cast { position: relative; inset: auto; z-index: auto; background: transparent; }
 body.watching #cast:not(:fullscreen) > video { max-height: 75vh; object-fit: contain; }
 @media (max-aspect-ratio: 1/1), (pointer: coarse) {
-  html:has(body.away) { overflow: hidden; overscroll-behavior: none; }
-  body.away {
+  html:has(body.watching) { overflow: hidden; overscroll-behavior: none; }
+  body.watching {
     position: fixed;
     inset: 0;
     min-height: 0;
@@ -354,8 +354,8 @@ body.watching #cast:not(:fullscreen) > video { max-height: 75vh; object-fit: con
     display: flex;
     flex-direction: column;
   }
-  body.away > .proscenium, body.away > .cast { flex: none; }
-  body.away > .details { flex: 1 1 auto; min-height: 0; width: 100%; overflow-y: auto; overscroll-behavior: contain; }
+  body.watching > .proscenium, body.watching > .cast { flex: none; }
+  body.watching > .details { flex: 1 1 auto; min-height: 0; width: 100%; overflow-y: auto; overscroll-behavior: contain; }
   body.watching #cast:not(:fullscreen) > video { max-height: min(75vh, calc(100dvh - var(--proscenio-pad, 0px) - 8rem)); }
 }
 
@@ -368,6 +368,20 @@ body.watching #cast:not(:fullscreen) > video { max-height: 75vh; object-fit: con
   gap: 1rem;
 }
 .details[hidden] { display: none; }
+body.listening .cast { width: calc(100% - 48px); max-width: 980px; margin: 22px auto 0; }
+.details.notes { max-width: 980px; margin: 22px auto 0; padding: 0 48px calc(24px + var(--bacchetta-height, 0px)); gap: 0; }
+.notes-head { font-size: 24px; font-weight: 400; line-height: 1.2; color: var(--gold-bright); margin: 14px 0 6px; }
+.notes-chapters { list-style: none; margin: 0; padding: 0; }
+.notes-chapters li { border-bottom: 1px solid var(--z-line); }
+.notes-chapters button { display: flex; width: 100%; justify-content: space-between; align-items: baseline; gap: 1rem; padding: 6px 0;
+  font: inherit; color: var(--stage-ink); background: none; border: 0; text-align: left; cursor: pointer; }
+.notes-chapters li.cur button { color: var(--gold-bright); }
+.notes-chapters time { font-size: 16px; color: var(--stage-muted); }
+.notes-about { line-height: 1.5; color: var(--stage-ink); overflow-wrap: anywhere; }
+@media (max-aspect-ratio: 1/1) {
+  body.listening .cast { width: auto; margin: 14px 10px 0; }
+  .details.notes { margin-top: 14px; padding: 0 24px 14px; }
+}
 .details-back {
   align-self: flex-start;
   font-size: 0.95rem;

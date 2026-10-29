@@ -160,6 +160,12 @@
     });
   }
 
+  function kickerOf(key) {
+    var folders = (key || '').split('/').slice(0, -1);
+    while (folders.length && /^[0-9]+d$/.test(folders[0])) folders.shift();
+    return folders.slice(-2).join(' · ') || undefined;
+  }
+
   function backgroundOf(it) {
     if (!video.canPlayType('application/vnd.apple.mpegurl')) return undefined;
     if (it.kind === 'video' && it.audio) return { src: it.audio, type: 'application/vnd.apple.mpegurl' };
@@ -269,6 +275,7 @@
       quality: qualities ? 'auto' : undefined,
       session: web && !tv,
       artwork: it.poster || undefined,
+      kicker: kickerOf(it.key),
       background: web && !tv ? backgroundOf(it) : undefined
     });
     filo.focus();

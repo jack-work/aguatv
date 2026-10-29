@@ -634,14 +634,53 @@
 
   var details = document.getElementById('details');
 
+  var chapterRows = [];
+
+  function markChapter() {
+    if (!chapterRows.length) return;
+    var at = cast.state().position;
+    var cur = -1;
+    chapterRows.forEach(function (r, i) { if (r.start <= at) cur = i; });
+    chapterRows.forEach(function (r, i) { r.node.classList.toggle('cur', i === cur); });
+  }
+
+  function renderNotes(it, p) {
+    details.classList.add('notes');
+    var chapters = it.chapters || [];
+    if (chapters.length) {
+      details.appendChild(el('h3', 'notes-head fontpack-display', 'Chapters'));
+      var ol = el('ol', 'notes-chapters');
+      chapters.forEach(function (c) {
+        var li = el('li', '');
+        var b = el('button', '', '');
+        b.type = 'button';
+        b.appendChild(el('span', '', c.title || clockOf(c.start)));
+        b.appendChild(el('time', 'fontpack-mono', clockOf(c.start)));
+        b.addEventListener('click', function () { cast.control('seekTo', c.start); });
+        li.appendChild(b);
+        ol.appendChild(li);
+        chapterRows.push({ start: c.start, node: li });
+      });
+      details.appendChild(ol);
+      markChapter();
+    }
+    details.appendChild(el('h3', 'notes-head fontpack-display', 'About'));
+    var facts = p.rows.filter(function (r) { return r[1] && r[1] !== '—' && r[0] !== 'Kind'; })
+      .map(function (r) { return r[0] + ' ' + r[1]; });
+    details.appendChild(el('p', 'notes-about', facts.join(' · ')));
+  }
+
   function renderDetails(v, key) {
     details.textContent = '';
+    details.classList.remove('notes');
+    chapterRows = [];
     details.hidden = v === 'gallery';
     if (v === 'gallery') { focus(); return; }
     var it = cast.item() || {};
     var m = state.library.filter(function (x) { return x.key === key; })[0] ||
       { key: key, title: it.title || key, kind: it.kind, duration: it.duration, state: it.state, tags: [] };
     var p = mediaPanel({ media: m });
+    if (v === 'about' && it.key === key && it.kind === 'audio') { renderNotes(it, p); return; }
     var top = el('button', 'details-back fontpack-mono', '← gallery');
     top.type = 'button';
     top.addEventListener('click', function () { cast.back(); });
@@ -984,8 +1023,8 @@
     })();
   }
 
-  cast.onChange(function () { report(true); if (tvShell && !cast.open()) tick(); });
-  document.getElementById('video').addEventListener('timeupdate', function () { report(false); });
+  cast.onChange(function () { report(true); markChapter(); if (tvShell && !cast.open()) tick(); });
+  document.getElementById('video').addEventListener('timeupdate', function () { report(false); markChapter(); });
 
   window.aguatv = {
     refresh: function () { build(); if (state.panel && state.panel.kind === 'settings') openSettings(true); },
