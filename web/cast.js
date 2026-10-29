@@ -363,6 +363,7 @@
   window.addEventListener('popstate', function () { if (online()) route(routeOf(location.search)).catch(function () {}); });
   root.addEventListener('filo:seek', function () { tell(); savePosition(true); });
   root.addEventListener('filo:quality', function (e) { switchQuality(e.detail && e.detail.value); });
+  root.addEventListener('filo:dock', function (e) { if (e.detail && e.detail.on && view === 'about') back(); });
   video.addEventListener('play', tell);
   video.addEventListener('pause', function () { tell(); savePosition(true); });
   video.addEventListener('timeupdate', function () { savePosition(false); });
