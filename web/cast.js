@@ -14,6 +14,8 @@
   var view = 'gallery';
   var pushed = false;
   var viewers = [];
+  var galleryY = 0;
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   var loads = 0;
 
   function online() { return !window.host && !/[?&]preview\b/.test(location.search); }
@@ -97,6 +99,8 @@
   }
 
   function setView(v, key, how) {
+    if (view === 'gallery' && v !== 'gallery') galleryY = window.scrollY;
+    var returning = view !== 'gallery' && v === 'gallery';
     view = v;
     var listening = v === 'about' && !!item && item.kind === 'audio' && !!filo;
     if (filo && item && item.kind === 'audio' && online() && !onTv() && filo.docked === listening) filo.dock(!listening);
@@ -109,6 +113,7 @@
     }
     if (v !== 'gallery') window.scrollTo(0, 0);
     viewers.forEach(function (f) { f(v, key); });
+    if (returning) window.scrollTo(0, galleryY);
   }
 
   function back() {
