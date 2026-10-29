@@ -22,13 +22,16 @@
 
   function onTv() { return !!window.aguatvReceiver; }
 
+  function media() { return filo && filo.media || video; }
+
   function state() {
+    var m = media();
     return {
       title: item ? item.title : '',
       key: item ? item.key : '',
-      position: video.currentTime || 0,
+      position: m.currentTime || 0,
       duration: isFinite(video.duration) ? video.duration : 0,
-      playing: !!item && !video.paused
+      playing: !!item && !m.paused
     };
   }
 
@@ -48,7 +51,7 @@
     saved = now;
     fetch(itemPath(item.key), {
       method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ position: video.currentTime || 0, duration: video.duration })
+      body: JSON.stringify({ position: media().currentTime || 0, duration: video.duration })
     }).catch(function () {});
   }
 
@@ -157,6 +160,13 @@
     });
   }
 
+  function backgroundOf(it) {
+    if (!video.canPlayType('application/vnd.apple.mpegurl')) return undefined;
+    if (it.kind === 'video' && it.audio) return { src: it.audio, type: 'application/vnd.apple.mpegurl' };
+    if (it.kind === 'audio') return it.state === 'ready' && it.master ? { src: it.master, type: 'application/vnd.apple.mpegurl' } : undefined;
+    return { src: it.original, type: 'audio/mp4' };
+  }
+
   function source(src, master, at, playing) {
     if (hls) { hls.destroy(); hls = null; }
     function resume() {
@@ -256,7 +266,10 @@
       thumbnails: it.thumbnails || undefined,
       waveform: it.waveform || undefined,
       qualities: qualities || undefined,
-      quality: qualities ? 'auto' : undefined
+      quality: qualities ? 'auto' : undefined,
+      session: web && !tv,
+      artwork: it.poster || undefined,
+      background: web && !tv ? backgroundOf(it) : undefined
     });
     filo.focus();
     var resume = it.position && it.position.position > 5 && (!it.duration || it.position.position < it.duration - 10) ? it.position.position : 0;
