@@ -279,7 +279,8 @@
       background: web && !tv ? backgroundOf(it) : undefined
     });
     filo.focus();
-    var resume = it.position && it.position.position > 5 && (!it.duration || it.position.position < it.duration - 10) ? it.position.position : 0;
+    var total = it.duration || (it.position && it.position.duration) || 0;
+    var resume = it.position && total && it.position.position > 5 && it.position.position < total - 10 ? it.position.position : 0;
     source(it.original, it.state === 'ready' ? it.master : null, resume, true);
     if (tv) setView('gallery', null, null);
     else if (web && how === 'about') setView('about', it.key, null);
