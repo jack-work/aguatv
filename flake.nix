@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    zanni.url = "git+ssh://git@spain/jack/zanni.git?ref=refs/tags/v0.23.4&rev=7f1b463a565be479489126c0bc2df57bc461bf88";
+    zanni.url = "git+ssh://git@spain/jack/zanni.git?ref=refs/tags/v0.23.5&rev=af49185e590e5a475d62a59e8cf8c1c14da968a8";
     zanni.inputs.nixpkgs.follows = "nixpkgs";
     dumbtv = {
       url = "github:humblemuzzu/dumbtv";

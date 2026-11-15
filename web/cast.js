@@ -15,6 +15,9 @@
   var pushed = false;
   var viewers = [];
   var galleryY = 0;
+  var selectedQuality = 'auto';
+  var engine = null;
+  var subtitleAttempt = null;
   if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   var loads = 0;
 
@@ -61,6 +64,8 @@
 
   function unload() {
     loads++;
+    subtitleAttempt = null;
+    engine = null;
     if (hls) { hls.destroy(); hls = null; }
     video.pause();
     video.removeAttribute('src');
@@ -179,6 +184,8 @@
   }
 
   function source(src, master, at, playing) {
+    loads++;
+    engine = 'progressive';
     if (hls) { hls.destroy(); hls = null; }
     function resume() {
       if (at) {
@@ -188,6 +195,7 @@
       if (playing) video.play().catch(function () { if (filo) filo.showBar(true); });
     }
     if (master && !window.aguatvReceiver && video.canPlayType('application/vnd.apple.mpegurl')) {
+      engine = 'native';
       video.src = master;
       if (filo) filo.setSubtitleMode(item && (item.subtitles || []).some(function (s) { return !!s.hls; }) ? 'native' : 'sidecar');
       resume();
@@ -195,6 +203,7 @@
     }
     if (filo) filo.setSubtitleMode('sidecar');
     if (master && window.MediaSource) {
+      engine = 'hls';
       var load = loads;
       return loadHls().then(function (Hls) {
         if (load !== loads) return;
@@ -205,6 +214,7 @@
         resume();
       }).catch(function () {
         if (load !== loads) return;
+        engine = 'progressive';
         video.src = src;
         resume();
       });
@@ -216,6 +226,7 @@
 
   function switchQuality(value) {
     if (!item || item.state !== 'ready') return;
+    selectedQuality = value;
     var at = video.currentTime || 0;
     var playing = !video.paused;
     if (value === 'original') { source(item.original, null, at, playing); return; }
@@ -250,6 +261,87 @@
     }, READY_POLL_MS);
   }
 
+  function playerItem(it) {
+    return {
+      kind: it.kind === 'audio' ? 'audio' : 'video',
+      title: it.title,
+      itemId: it.itemId || null,
+      subtitles: it.subtitles || [],
+      chapters: (it.chapters || []).map(function (c) { return { start: c.start, title: c.title }; }),
+      duration: it.duration || 0,
+      thumbnails: it.thumbnails || null,
+      waveform: it.waveform || null,
+      qualities: qualitiesOf(it) || [],
+      quality: selectedQuality,
+      artwork: it.poster || null,
+      kicker: kickerOf(it.key),
+      background: online() && !onTv() ? backgroundOf(it) : null
+    };
+  }
+
+  function nativeSubtitles(it) {
+    return JSON.stringify((it.subtitles || []).filter(function (s) { return s.hls; }).map(function (s) {
+      return [s.id, s.hls.groupId, s.hls.name];
+    }).sort());
+  }
+
+  function sameMaster(fresh, previous) {
+    try {
+      var url = new URL(fresh.master, location.href);
+      return url.origin === location.origin && !url.username && !url.password && url.href === new URL(previous.master, location.href).href;
+    } catch (_) { return false; }
+  }
+
+  function subtitleCurrent(attempt) {
+    return attempt === subtitleAttempt && filo === attempt.player && item && item.key === attempt.key &&
+      filo.itemId === attempt.itemId && filo.subtitle === attempt.id;
+  }
+
+  function reloadSubtitleMaster(attempt, fresh, playback) {
+    var load = ++loads;
+    video.pause();
+    video.addEventListener('loadedmetadata', function () {
+      if (load !== loads || filo !== attempt.player || !item || item.itemId !== attempt.itemId) return;
+      try { video.currentTime = playback.time; } catch (_) {}
+      video.playbackRate = playback.rate;
+      if (playback.playing && attempt.id !== null && subtitleCurrent(attempt)) video.play().catch(function () {});
+    }, { once: true });
+    video.src = fresh.master;
+    video.load();
+  }
+
+  function refreshSubtitle(id, explicit) {
+    if (!filo || !item) return Promise.resolve();
+    if (id === null) { subtitleAttempt = null; return Promise.resolve(); }
+    if (filo.subtitle !== id) return Promise.resolve();
+    var selected = filo.subtitles.filter(function (s) { return s.id === id; })[0];
+    if (!selected) return Promise.resolve();
+    if (explicit || !subtitleAttempt || subtitleAttempt.player !== filo || subtitleAttempt.id !== id) {
+      subtitleAttempt = { player: filo, key: item.key, itemId: filo.itemId, id: id,
+        language: selected.language, label: selected.label, used: false };
+    }
+    var attempt = subtitleAttempt;
+    if (attempt.used) return Promise.resolve();
+    attempt.used = true;
+    return describe({ key: attempt.key, title: item.title, poster: item.poster }).then(function (fresh) {
+      if (!subtitleCurrent(attempt) || fresh.key !== attempt.key || fresh.itemId !== attempt.itemId) return;
+      var matches = (fresh.subtitles || []).filter(function (s) { return s.language === attempt.language && s.label === attempt.label; });
+      var chosen = matches.length === 1 ? matches[0] : null;
+      var native = engine === 'native';
+      var reload = native && nativeSubtitles(item) !== nativeSubtitles(fresh);
+      if (reload && !sameMaster(fresh, item)) chosen = null;
+      var playback = { time: video.currentTime || 0, playing: !video.paused, rate: video.playbackRate };
+      item = fresh;
+      attempt.id = chosen ? chosen.id : null;
+      var update = playerItem(fresh);
+      update.subtitleMode = native && (fresh.subtitles || []).some(function (s) { return !!s.hls; }) ? 'native' : 'sidecar';
+      filo.setItem(update);
+      if (!filo.setSubtitle(attempt.id)) { attempt.id = null; filo.setSubtitle(null); }
+      if (reload && attempt.id !== null) reloadSubtitleMaster(attempt, fresh, playback);
+      tell();
+    }).catch(function () {});
+  }
+
   function show(it, how) {
     unprepare();
     var wasDocked = !!(filo && filo.docked);
@@ -263,9 +355,8 @@
     var docked = web && !tv && ((audio && how !== 'about') || (wasDocked && how === 'cast'));
     if (!web || tv) document.body.classList.add('casting');
     if (it.poster) video.setAttribute('poster', it.poster);
-    var chapters = (it.chapters || []).map(function (c) { return { start: c.start, title: c.title }; });
-    var qualities = qualitiesOf(it);
-    filo = window.zanni.filo.attach(video, {
+    selectedQuality = qualitiesOf(it) ? 'auto' : 'original';
+    filo = window.zanni.filo.attach(video, Object.assign(playerItem(it), {
       globalKeys: true,
       tvKeys: tv,
       autohide: 4000,
@@ -273,21 +364,8 @@
       bar: web && !tv,
       docked: docked,
       boil: false,
-      kind: it.kind === 'audio' ? 'audio' : undefined,
-      title: it.title,
-      itemId: it.itemId || null,
-      subtitles: it.subtitles || [],
-      chapters: chapters,
-      duration: it.duration || undefined,
-      thumbnails: it.thumbnails || undefined,
-      waveform: it.waveform || undefined,
-      qualities: qualities || undefined,
-      quality: qualities ? 'auto' : undefined,
-      session: web && !tv,
-      artwork: it.poster || undefined,
-      kicker: kickerOf(it.key),
-      background: web && !tv ? backgroundOf(it) : undefined
-    });
+      session: web && !tv
+    }));
     filo.focus();
     var total = it.duration || (it.position && it.position.duration) || 0;
     var resume = it.position && total && it.position.position > 5 && it.position.position < total - 10 ? it.position.position : 0;
@@ -344,6 +422,7 @@
     if (action === 'subtitle') {
       if (!filo || typeof itemId !== 'string' || itemId !== filo.itemId) return false;
       var accepted = filo.setSubtitle(value);
+      if (accepted) refreshSubtitle(value, true);
       tell();
       return accepted;
     }
@@ -381,9 +460,17 @@
   window.addEventListener('popstate', function () { if (online()) route(routeOf(location.search)).catch(function () {}); });
   root.addEventListener('filo:seek', function () { tell(); savePosition(true); });
   root.addEventListener('filo:quality', function (e) { switchQuality(e.detail && e.detail.value); });
-  root.addEventListener('filo:subtitle', tell);
+  root.addEventListener('filo:subtitle', function (e) {
+    if (filo && filo.itemId === e.detail.itemId) refreshSubtitle(e.detail.id, true);
+    tell();
+  });
   root.addEventListener('filo:subtitlestate', tell);
-  root.addEventListener('filo:subtitleerror', tell);
+  root.addEventListener('filo:subtitleerror', function (e) {
+    tell();
+    Promise.resolve().then(function () {
+      if (filo && filo.itemId === e.detail.itemId) refreshSubtitle(e.detail.id, false);
+    });
+  });
   root.addEventListener('filo:dock', function (e) { if (e.detail && e.detail.on && view === 'about') back(); });
   video.addEventListener('play', tell);
   video.addEventListener('pause', function () { tell(); savePosition(true); });
