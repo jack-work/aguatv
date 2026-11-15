@@ -114,18 +114,18 @@
         ]
       },
       "locked": {
-        "lastModified": 1793279702,
-        "narHash": "sha256-/WxLa6GkiW2kKfcRrLkwZhMfywgkmuDLB3pM/2ID4ec=",
-        "owner": "jack-work",
-        "repo": "zanni",
-        "rev": "aae51955bac719bc4e26ebd7174a5a9f5884a103",
-        "type": "github"
+        "lastModified": 1794712085,
+        "narHash": "sha256-qo0irqlbd2FmI/bA7OMrpkgJqAY6+kNZ+hLHG0vQkkU=",
+        "ref": "refs/heads/master",
+        "rev": "fd799362251e5575826453d99975585d530dae53",
+        "revCount": 65,
+        "type": "git",
+        "url": "ssh://git@spain/jack/zanni.git"
       },
       "original": {
-        "owner": "jack-work",
-        "repo": "zanni",
-        "rev": "aae51955bac719bc4e26ebd7174a5a9f5884a103",
-        "type": "github"
+        "rev": "fd799362251e5575826453d99975585d530dae53",
+        "type": "git",
+        "url": "ssh://git@spain/jack/zanni.git"
       }
     }
   },

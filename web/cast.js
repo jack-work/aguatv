@@ -29,6 +29,10 @@
     return {
       title: item ? item.title : '',
       key: item ? item.key : '',
+      itemId: filo ? filo.itemId : null,
+      subtitles: filo ? filo.subtitles : [],
+      subtitle: filo ? filo.subtitle : null,
+      subtitleState: filo ? filo.subtitleState : 'off',
       position: m.currentTime || 0,
       duration: isFinite(video.duration) ? video.duration : 0,
       playing: !!item && !m.paused
@@ -147,6 +151,7 @@
 
   function qualitiesOf(it) {
     if (it.state !== 'ready' || !it.rungs || !it.rungs.length) return null;
+    if (!onTv() && video.canPlayType('application/vnd.apple.mpegurl') && (it.subtitles || []).some(function (s) { return !!s.hls; })) return [{ value: 'auto', label: 'Auto' }, { value: 'original', label: 'Original' }];
     return [{ value: 'auto', label: 'Auto' }]
       .concat(it.rungs.map(function (r) { return { value: r.name, label: rungLabel(r) }; }))
       .concat([{ value: 'original', label: 'Original' }]);
@@ -184,9 +189,11 @@
     }
     if (master && !window.aguatvReceiver && video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = master;
+      if (filo) filo.setSubtitleMode(item && (item.subtitles || []).some(function (s) { return !!s.hls; }) ? 'native' : 'sidecar');
       resume();
       return Promise.resolve();
     }
+    if (filo) filo.setSubtitleMode('sidecar');
     if (master && window.MediaSource) {
       var load = loads;
       return loadHls().then(function (Hls) {
@@ -267,6 +274,8 @@
       boil: false,
       kind: it.kind === 'audio' ? 'audio' : undefined,
       title: it.title,
+      itemId: it.itemId || null,
+      subtitles: it.subtitles || [],
       chapters: chapters,
       duration: it.duration || undefined,
       thumbnails: it.thumbnails || undefined,
@@ -329,7 +338,13 @@
     (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true, cancelable: true }));
   }
 
-  function control(action, value) {
+  function control(action, value, itemId) {
+    if (action === 'subtitle') {
+      if (!filo || typeof itemId !== 'string' || itemId !== filo.itemId) return false;
+      var accepted = filo.setSubtitle(value);
+      tell();
+      return accepted;
+    }
     if (action === 'stop') { stop(); return; }
     if (action === 'key') { pressKey(value); return; }
     if (action === 'back') { if (window.aguatv) window.aguatv.back(); return; }
@@ -364,6 +379,9 @@
   window.addEventListener('popstate', function () { if (online()) route(routeOf(location.search)).catch(function () {}); });
   root.addEventListener('filo:seek', function () { tell(); savePosition(true); });
   root.addEventListener('filo:quality', function (e) { switchQuality(e.detail && e.detail.value); });
+  root.addEventListener('filo:subtitle', tell);
+  root.addEventListener('filo:subtitlestate', tell);
+  root.addEventListener('filo:subtitleerror', tell);
   root.addEventListener('filo:dock', function (e) { if (e.detail && e.detail.on && view === 'about') back(); });
   video.addEventListener('play', tell);
   video.addEventListener('pause', function () { tell(); savePosition(true); });

@@ -822,8 +822,10 @@
     });
   }
 
-  function control(screen, action, value) {
-    return api('POST', '/api/screens/' + encodeURIComponent(screen.id) + '/control', { action: action, value: value === undefined ? 0 : value })
+  function control(screen, action, value, itemId) {
+    var command = { action: action, value: value === undefined ? 0 : value };
+    if (action === 'subtitle') command.itemId = itemId;
+    return api('POST', '/api/screens/' + encodeURIComponent(screen.id) + '/control', command)
       .then(function () { setTimeout(refreshScreens, 400); })
       .catch(fail);
   }
@@ -836,10 +838,10 @@
   function paintNow() {
     if (!remoteSheet || !remoteSheet.shown || !remoteSheet.screen) return;
     var st = screenState(remoteSheet.screen.id);
-    if (!st || !st.title) { remoteSheet.setNow({ title: 'nothing playing', position: 0, duration: 0, playing: false }); return; }
+    if (!st || !st.title) { remoteSheet.setNow({ title: 'nothing playing', position: 0, duration: 0, playing: false, itemId: null, subtitles: [], subtitle: null, subtitleState: 'off' }); return; }
     var pos = st.position + (st.playing && st.at ? Date.now() / 1000 - st.at : 0);
     if (st.duration) pos = Math.min(pos, st.duration);
-    remoteSheet.setNow({ title: st.title, position: pos, duration: st.duration || 0, playing: !!st.playing });
+    remoteSheet.setNow({ title: st.title, position: pos, duration: st.duration || 0, playing: !!st.playing, itemId: st.itemId || null, subtitles: st.subtitles || [], subtitle: st.subtitle == null ? null : st.subtitle, subtitleState: st.subtitleState || 'off' });
   }
 
   var fastTimer = null;
@@ -885,7 +887,7 @@
     });
     remoteSheet.root.addEventListener('bacchetta:control', function (e) {
       var d = e.detail;
-      if (d.screen) control(d.screen, d.action, d.value);
+      if (d.screen) control(d.screen, d.action, d.value, d.itemId);
     });
     remoteSheet.root.addEventListener('bacchetta:path', function (e) {
       var d = e.detail;
@@ -1015,7 +1017,7 @@
         if (!r.ok) return sleep(5000).then(loop);
         return r.json().then(function (e) {
           if (e.kind === 'cast') cast.play(e).catch(function (err) { say(err.message); });
-          else if (e.kind === 'control') cast.control(e.action, e.value);
+          else if (e.kind === 'control') cast.control(e.action, e.value, e.itemId);
           else if (e.kind === 'forgotten') { listening = false; cast.stop(); return refreshScreens(); }
           return loop();
         });
