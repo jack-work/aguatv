@@ -43,6 +43,7 @@ flake.nix      web, apk, cli, remote, aguatv packages; lib.mkTvs
 | [takeover.md](takeover.md) | HOME lands on Amazon's screen, the guard will not bind, or you touch `Guard.java` or `bin/aguatv` |
 | [bridge.md](bridge.md) | adding something the page can ask for or do, or changing keys |
 | [build.md](build.md) | the build fails, the SDK changes, or signing goes wrong |
+| [signing.md](signing.md) | root-approved runtime receiver signing, credential names, release receipts or artifact publication |
 | [hub.md](hub.md) | screens, the remote grant, casting, the hub's security rules, or testing it on a workstation |
 | [deploy.md](deploy.md) | declaring a TV's packages and settings, or changing aguatv-deploy |
 | [remote.md](remote.md) | changing the terminal remote, its keys, or how it reaches the TV |

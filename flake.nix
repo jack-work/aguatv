@@ -189,6 +189,7 @@
         '';
 
         player = import ./nix/player.nix { inherit pkgs sdkRoot buildTools minSdk jdk version; };
+        apk-signer = import ./nix/apk-signer.nix { inherit pkgs sdkRoot buildTools jdk; };
 
         aguatv = pkgs.writeShellApplication {
           name = "aguatv";
@@ -219,6 +220,7 @@
             remote
             player
             aguatv
+            apk-signer
             ;
           default = pkgs.symlinkJoin {
             name = "aguatv-${version}";
@@ -234,6 +236,15 @@
         };
         checks = nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           hub-module = import ./nix/hub-test.nix { inherit pkgs self; };
+          apk-signer = pkgs.runCommand "aguatv-apk-signer-tests" {
+            nativeBuildInputs = [ pkgs.python3 jdk ];
+            SIGNER_MODULE = "${apk-signer}/lib/aguatv-sign-player.py";
+            SIGNER_BIN = "${apk-signer}/bin/aguatv-sign-player";
+            UNSIGNED_APK = "${player}/aguatv-player-unsigned.apk";
+          } ''
+            export HOME=$TMPDIR
+            python3 ${./nix/apk-signer-test.py} > $out 2>&1 || { cat $out; exit 1; }
+          '';
         };
         devShells.default = pkgs.mkShell {
           packages = [
