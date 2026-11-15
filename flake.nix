@@ -236,7 +236,7 @@
         };
         checks = nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           hub-module = import ./nix/hub-test.nix { inherit pkgs self; };
-          apk-signer-credentials = import ./nix/apk-signer-credentials-test.nix { inherit pkgs apk-signer; };
+          apk-signer-credentials = import ./nix/apk-signer-credentials-test.nix { inherit pkgs apk-signer player jdk; };
           apk-signer = pkgs.runCommand "aguatv-apk-signer-tests" {
             nativeBuildInputs = [ pkgs.python3 jdk ];
             SIGNER_MODULE = "${apk-signer}/lib/aguatv-sign-player.py";

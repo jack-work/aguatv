@@ -11,6 +11,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import threading
 
 APKSIGNER = "@apksigner@"
 AAPT2 = "@aapt2@"
@@ -139,13 +140,58 @@ def credential_paths(directory, release=None):
     return paths
 
 
+def collect_diagnostic(fd, target):
+    with os.fdopen(fd, "rb") as stream:
+        while chunk := stream.read(4096):
+            target.extend(chunk[:max(0, 8192 - len(target))])
+
+
+def signing_error_category(arguments, diagnostic):
+    text = bytes(diagnostic).lower()
+    paths = []
+    for index, value in enumerate(arguments[:-1]):
+        if value in ("--ks", "--ks-pass", "--key-pass"):
+            paths.append(os.fsencode(arguments[index + 1].removeprefix("file:")).lower())
+    if any(value in text for value in (b"permission denied", b"accessdeniedexception")) and any(path in text for path in paths):
+        return "credential-access-refused"
+    if any(value in text for value in (b"keystore password was incorrect", b"keystore was tampered with", b"password verification failed",
+                                       b"failed to decrypt safe contents", b"invalid keystore format", b"unrecognized keystore format")):
+        return "keystore-format-or-password"
+    if any(value in text for value in (b"does not contain a key with alias", b"does not contain key with alias", b"no key found with alias", b"not a key entry")):
+        return "alias-or-key-rejected"
+    if any(value in text for value in (b"could not create the java virtual machine", b"could not reserve enough space", b"error while loading shared libraries")):
+        return "runtime-initialization-failed"
+    return "unknown-tool-error"
+
+
 def run_tool(arguments, work, operation):
     environment = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "HOME": str(work), "TMPDIR": str(work), "PATH": "/nonexistent"}
+    read_fd, write_fd = os.pipe()
+    diagnostic = bytearray()
+    reader = threading.Thread(target=collect_diagnostic, args=(read_fd, diagnostic), daemon=True)
+    reader.start()
+    failure = None
     try:
-        result = subprocess.run(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        result = subprocess.run(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=write_fd,
                                 env=environment, timeout=120, check=True, text=True)
-    except (OSError, subprocess.SubprocessError):
-        raise SigningError(operation + " failed") from None
+    except (OSError, subprocess.SubprocessError) as error:
+        failure = error
+    finally:
+        os.close(write_fd)
+        reader.join()
+    if isinstance(failure, OSError):
+        raise SigningError(operation + " failed (launch-error, errno=" + str(failure.errno or 0) + ")") from None
+    if isinstance(failure, subprocess.TimeoutExpired):
+        raise SigningError(operation + " failed (timeout)") from None
+    if isinstance(failure, subprocess.CalledProcessError):
+        if failure.returncode < 0:
+            category, code = "signal", -failure.returncode
+        else:
+            category = signing_error_category(arguments, diagnostic) if operation == "APK signing" else "tool-exit"
+            code = failure.returncode
+        raise SigningError(operation + " failed (" + category + ", code=" + str(code) + ")") from None
+    if failure is not None:
+        raise SigningError(operation + " failed (unknown-launch-error)") from None
     return result.stdout
 
 

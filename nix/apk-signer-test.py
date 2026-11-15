@@ -87,6 +87,55 @@ class CredentialMetadataTests(unittest.TestCase):
             self.check({"key-password": {"st_ino": 1}})
 
 
+class DiagnosticTests(unittest.TestCase):
+    arguments = ["fixed-tool", "sign", "--ks", "/fixture/keystore", "--ks-pass", "file:/fixture/password"]
+
+    def failure(self, diagnostic=b"", error=None):
+        def run(arguments, **kwargs):
+            os.write(kwargs["stderr"], diagnostic)
+            raise error or subprocess.CalledProcessError(2, arguments, output="DO_NOT_LOG_STDOUT")
+        with patch.object(signer.subprocess, "run", side_effect=run), self.assertRaises(signer.SigningError) as caught:
+            signer.run_tool(self.arguments, "/fixture/work", "APK signing")
+        message = str(caught.exception)
+        for forbidden in ["DO_NOT_LOG", "/fixture", "fixed-tool", "Exception"]:
+            self.assertNotIn(forbidden, message)
+        return message
+
+    def test_only_fixed_categories_and_numeric_codes_leave_the_boundary(self):
+        for diagnostic, category in [
+            (b"/fixture/keystore: Permission denied DO_NOT_LOG", "credential-access-refused"),
+            (b"/fixture/output.apk: Permission denied DO_NOT_LOG", "unknown-tool-error"),
+            (b"keystore password was incorrect DO_NOT_LOG", "keystore-format-or-password"),
+            (b"invalid keystore format DO_NOT_LOG", "keystore-format-or-password"),
+            (b"does not contain a key with alias DO_NOT_LOG", "alias-or-key-rejected"),
+            (b"could not create the Java Virtual Machine DO_NOT_LOG", "runtime-initialization-failed"),
+            (b"DO_NOT_LOG arbitrary unknown tool text", "unknown-tool-error"),
+        ]:
+            with self.subTest(category=category):
+                self.assertEqual(self.failure(diagnostic), "APK signing failed (" + category + ", code=2)")
+
+    def test_launch_timeout_and_signal_do_not_print_exception_strings(self):
+        for error, expected in [
+            (OSError(13, "DO_NOT_LOG", "/fixture/keystore"), "launch-error, errno=13"),
+            (subprocess.TimeoutExpired(self.arguments, 120, output="DO_NOT_LOG"), "timeout"),
+            (subprocess.CalledProcessError(-9, self.arguments, output="DO_NOT_LOG"), "signal, code=9"),
+        ]:
+            with self.subTest(expected=expected):
+                self.assertEqual(self.failure(error=error), "APK signing failed (" + expected + ")")
+
+    def test_stderr_is_drained_but_retained_only_up_to_the_fixed_limit(self):
+        target = bytearray()
+        read_fd, write_fd = os.pipe()
+        def write():
+            with os.fdopen(write_fd, "wb") as stream:
+                stream.write(b"x" * 50000)
+        writer = signer.threading.Thread(target=write)
+        writer.start()
+        signer.collect_diagnostic(read_fd, target)
+        writer.join()
+        self.assertEqual(target, b"x" * 8192)
+
+
 class SignerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -280,7 +329,8 @@ class SignerTests(unittest.TestCase):
         self.assertNotIn("JAVA_TOOL_OPTIONS", environment)
         self.assertNotIn("KEYPASS", environment)
         self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
-        self.assertEqual(run.call_args.kwargs["stderr"], subprocess.DEVNULL)
+        self.assertIsInstance(run.call_args.kwargs["stderr"], int)
+        self.assertGreaterEqual(run.call_args.kwargs["stderr"], 0)
 
     def test_config_requires_fixed_credential_basenames(self):
         path = self.root / "config.json"
