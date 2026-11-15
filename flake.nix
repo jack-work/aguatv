@@ -190,6 +190,7 @@
 
         player = import ./nix/player.nix { inherit pkgs sdkRoot buildTools minSdk jdk version; };
         apk-signer = import ./nix/apk-signer.nix { inherit pkgs sdkRoot buildTools jdk; };
+        existing-key-import = import ./nix/existing-key-import.nix { inherit pkgs jdk; };
 
         aguatv = pkgs.writeShellApplication {
           name = "aguatv";
@@ -221,6 +222,7 @@
             player
             aguatv
             apk-signer
+            existing-key-import
             ;
           default = pkgs.symlinkJoin {
             name = "aguatv-${version}";
@@ -236,6 +238,7 @@
         };
         checks = nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           hub-module = import ./nix/hub-test.nix { inherit pkgs self; };
+          existing-key-import = import ./nix/existing-key-import-test.nix { inherit pkgs jdk; helper = existing-key-import; };
           apk-signer-credentials = import ./nix/apk-signer-credentials-test.nix { inherit pkgs apk-signer player jdk; };
           apk-signer = pkgs.runCommand "aguatv-apk-signer-tests" {
             nativeBuildInputs = [ pkgs.python3 jdk ];
