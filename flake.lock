@@ -114,17 +114,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1794715092,
-        "narHash": "sha256-bHPbfIyQ5gEbu/Q4iCaS0IWOpAzZ69za04ll4IdKmpE=",
-        "ref": "refs/tags/v0.23.3",
-        "rev": "c7a437e22406c6686265684cb8225c8410963e92",
-        "revCount": 68,
+        "lastModified": 1794723227,
+        "narHash": "sha256-nf/YMYg08NEdH2OYkqO+sJL1WAAPRm96kWOHgI39CJM=",
+        "ref": "refs/tags/v0.23.4",
+        "rev": "7f1b463a565be479489126c0bc2df57bc461bf88",
+        "revCount": 69,
         "type": "git",
         "url": "ssh://git@spain/jack/zanni.git"
       },
       "original": {
-        "ref": "refs/tags/v0.23.3",
-        "rev": "c7a437e22406c6686265684cb8225c8410963e92",
+        "ref": "refs/tags/v0.23.4",
+        "rev": "7f1b463a565be479489126c0bc2df57bc461bf88",
         "type": "git",
         "url": "ssh://git@spain/jack/zanni.git"
       }
