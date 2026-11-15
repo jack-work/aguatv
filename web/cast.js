@@ -267,6 +267,7 @@
     var qualities = qualitiesOf(it);
     filo = window.zanni.filo.attach(video, {
       globalKeys: true,
+      tvKeys: tv,
       autohide: 4000,
       fill: !web || tv,
       bar: web && !tv,
@@ -335,6 +336,7 @@
 
   function pressKey(key) {
     if (REMOTE_KEYS.indexOf(key) < 0) return;
+    if (filo) return filo.key(key);
     (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true, cancelable: true }));
   }
 
@@ -356,7 +358,7 @@
       case 'seekTo': filo.seekTo(value); break;
       case 'seekFraction': filo.seekFraction(value); break;
       case 'chapter': filo.chapter(value < 0 ? -1 : 1); break;
-      case 'bar': filo.showBar(value < 0 ? !filo.shown : value > 0); break;
+      case 'bar': filo.controls(value < 0 ? !filo.shown : value > 0); break;
     }
   }
 
