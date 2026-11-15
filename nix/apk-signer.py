@@ -105,7 +105,21 @@ def load_config(path):
     return config
 
 
-def credential_paths(directory):
+def systemd_credentials(directory, release):
+    if not release or not RELEASE_ID.fullmatch(release):
+        return False
+    expected = Path("/run/credentials") / ("aguatv-sign-player@" + release + ".service")
+    if Path(directory) != expected:
+        return False
+    for parent in [expected, *expected.parents]:
+        info = os.stat(parent, follow_symlinks=False)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            return False
+    info = os.stat(expected, follow_symlinks=False)
+    return info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o550 and bool(os.statvfs(expected).f_flag & os.ST_RDONLY)
+
+
+def credential_paths(directory, release=None):
     if not directory or not Path(directory).is_absolute():
         raise SigningError("CREDENTIALS_DIRECTORY must name the systemd runtime credential directory")
     paths = {field: str(Path(directory) / name) for field, name in CREDENTIALS.items()}
@@ -113,8 +127,10 @@ def credential_paths(directory):
     try:
         for path in paths.values():
             info = os.stat(path, follow_symlinks=False)
-            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid not in (0, os.geteuid()):
-                raise SigningError("runtime credentials must be private regular files")
+            private = not info.st_mode & 0o077 and info.st_uid in (0, os.geteuid())
+            managed = info.st_uid == 0 and info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o440
+            if not stat.S_ISREG(info.st_mode) or not (private or managed and systemd_credentials(directory, release)):
+                raise SigningError("runtime credentials must be private regular files or root-owned read-only systemd credentials")
             identities.add((info.st_dev, info.st_ino))
     except OSError:
         raise SigningError("runtime credential files are unavailable") from None
@@ -236,7 +252,7 @@ def sign_locked(config, release, credentials, root, root_fd):
 
 def sign_release(config, release, directory):
     release_id(release)
-    credentials = credential_paths(directory)
+    credentials = credential_paths(directory, release)
     root = Path(config["outputDirectory"]).resolve(strict=True)
     root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:

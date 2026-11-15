@@ -18,6 +18,75 @@ signer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(signer)
 
 
+class CredentialMetadataTests(unittest.TestCase):
+    release = "test-release"
+    directory = "/run/credentials/aguatv-sign-player@test-release.service"
+
+    def check(self, changes=None, directory=None, release=None, readonly=True):
+        entries = {
+            path: SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0, st_gid=0)
+            for path in ["/", "/run", "/run/credentials", self.directory]
+        }
+        entries[self.directory].st_mode = stat.S_IFDIR | 0o550
+        for index, name in enumerate(signer.CREDENTIALS.values()):
+            entries[name] = SimpleNamespace(st_mode=stat.S_IFREG | 0o440, st_uid=0, st_gid=0, st_dev=1, st_ino=index)
+        for path, fields in (changes or {}).items():
+            for field, value in fields.items():
+                setattr(entries[path], field, value)
+
+        def metadata(path, follow_symlinks=False):
+            self.assertFalse(follow_symlinks)
+            key = Path(path).name if Path(path).name in signer.CREDENTIALS.values() else str(path)
+            return entries[key]
+
+        flags = SimpleNamespace(f_flag=os.ST_RDONLY if readonly else 0)
+        with patch.object(signer.os, "stat", side_effect=metadata), patch.object(signer.os, "statvfs", return_value=flags):
+            return signer.credential_paths(directory or self.directory, release or self.release)
+
+    def test_exact_readonly_systemd_shape_is_accepted_without_reading_credentials(self):
+        paths = self.check()
+        self.assertEqual(set(paths.values()), {self.directory + "/" + name for name in signer.CREDENTIALS.values()})
+
+    def test_group_readable_files_outside_the_matching_unit_namespace_are_refused(self):
+        for directory, release in [
+            ("/tmp/credentials", self.release),
+            ("/run/credentials/other.service", self.release),
+            (self.directory, "another-release"),
+            (self.directory, "../escape"),
+        ]:
+            with self.subTest(directory=directory, release=release), self.assertRaisesRegex(signer.SigningError, "private"):
+                self.check(directory=directory, release=release)
+
+    def test_changed_file_ownership_modes_and_types_are_refused(self):
+        for field, value in [
+            ("st_uid", 1234), ("st_gid", 1234),
+            ("st_mode", stat.S_IFREG | 0o444), ("st_mode", stat.S_IFREG | 0o460),
+            ("st_mode", stat.S_IFREG | 0o640), ("st_mode", stat.S_IFREG | 0o450),
+            ("st_mode", stat.S_IFLNK | 0o440), ("st_mode", stat.S_IFIFO | 0o440),
+        ]:
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(signer.SigningError, "private"):
+                self.check({"keystore": {field: value}})
+
+    def test_changed_parent_ownership_modes_and_types_are_refused(self):
+        for field, value in [
+            ("st_uid", 1234), ("st_gid", 1234),
+            ("st_mode", stat.S_IFDIR | 0o555), ("st_mode", stat.S_IFDIR | 0o570),
+            ("st_mode", stat.S_IFLNK | 0o550),
+        ]:
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(signer.SigningError, "private"):
+                self.check({self.directory: {field: value}})
+        for parent in ["/", "/run", "/run/credentials"]:
+            for fields in [{"st_uid": 1234}, {"st_mode": stat.S_IFDIR | 0o775}, {"st_mode": stat.S_IFLNK | 0o755}]:
+                with self.subTest(parent=parent, fields=fields), self.assertRaisesRegex(signer.SigningError, "private"):
+                    self.check({parent: fields})
+
+    def test_writable_filesystem_and_shared_credential_inodes_are_refused(self):
+        with self.assertRaisesRegex(signer.SigningError, "private"):
+            self.check(readonly=False)
+        with self.assertRaisesRegex(signer.SigningError, "distinct"):
+            self.check({"key-password": {"st_ino": 1}})
+
+
 class SignerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
