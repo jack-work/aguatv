@@ -1,5 +1,6 @@
 package tv.aguatv.player;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -138,8 +139,51 @@ final class Ops {
         if (!(title instanceof String) || ((String) title).length() > 256) return null;
         if (!(key instanceof String) || ((String) key).length() > 1024) return null;
         if (!finite(position) || !finite(duration) || !(playing instanceof Boolean)) return null;
+        String subtitles = subtitleState(body);
+        if (subtitles == null) return null;
         return "{\"title\":" + Json.quote((String) title) + ",\"key\":" + Json.quote((String) key)
-            + ",\"position\":" + position + ",\"duration\":" + duration + ",\"playing\":" + playing + "}";
+            + ",\"position\":" + position + ",\"duration\":" + duration + ",\"playing\":" + playing + subtitles + "}";
+    }
+
+    private static String subtitleState(Map<?, ?> body) {
+        if (!body.containsKey("itemId")) return "";
+        Object item = body.get("itemId");
+        if (item == Json.NULL) return ",\"itemId\":null,\"subtitles\":[],\"subtitle\":null,\"subtitleState\":\"off\"";
+        if (!text(item, 1200)) return null;
+        Object offered = body.get("subtitles");
+        if (!(offered instanceof List) || ((List<?>) offered).size() > 8) return null;
+        List<String> ids = new ArrayList<>();
+        StringBuilder tracks = new StringBuilder("[");
+        for (Object entry : (List<?>) offered) {
+            if (!(entry instanceof Map)) return null;
+            Map<?, ?> track = (Map<?, ?>) entry;
+            Object id = track.get("id"), language = track.get("language"), label = track.get("label");
+            if (!(id instanceof String) || !((String) id).matches("[0-9a-f]{32}") || ids.contains(id)) return null;
+            if (!text(language, 35) || !text(label, 100)) return null;
+            if (!ids.isEmpty()) tracks.append(',');
+            ids.add((String) id);
+            tracks.append("{\"id\":").append(Json.quote((String) id))
+                .append(",\"language\":").append(Json.quote((String) language))
+                .append(",\"label\":").append(Json.quote((String) label)).append('}');
+        }
+        tracks.append(']');
+        Object selected = body.get("subtitle");
+        boolean off = selected == null || selected == Json.NULL;
+        if (!off && (!(selected instanceof String) || !ids.contains(selected))) return null;
+        Object state = body.containsKey("subtitleState") ? body.get("subtitleState") : off ? "off" : "loading";
+        if (!(state instanceof String) || !("off".equals(state) || "loading".equals(state)
+            || "ready".equals(state) || "error".equals(state) || "suppressed".equals(state))) return null;
+        return ",\"itemId\":" + Json.quote((String) item) + ",\"subtitles\":" + tracks
+            + ",\"subtitle\":" + (off ? "null" : Json.quote((String) selected))
+            + ",\"subtitleState\":" + Json.quote((String) state);
+    }
+
+    private static boolean text(Object value, int max) {
+        if (!(value instanceof String)) return false;
+        String s = (String) value;
+        if (s.isEmpty() || s.length() > max) return false;
+        for (int i = 0; i < s.length(); i++) if (s.charAt(i) < 32) return false;
+        return true;
     }
 
     private static boolean finite(Object v) {

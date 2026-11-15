@@ -1,6 +1,8 @@
 package tv.aguatv.player;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 final class Json {
@@ -34,6 +36,7 @@ final class Json {
         space();
         char c = s.charAt(i);
         if (c == '{') return object();
+        if (c == '[') return array();
         if (c == '"') return string();
         if (s.startsWith("true", i)) { i += 4; return Boolean.TRUE; }
         if (s.startsWith("false", i)) { i += 5; return Boolean.FALSE; }
@@ -59,6 +62,23 @@ final class Json {
             space();
             char c = s.charAt(i++);
             if (c == '}') break;
+            if (c != ',') throw new IllegalArgumentException("comma");
+        }
+        depth--;
+        return out;
+    }
+
+    private List<Object> array() {
+        if (++depth > 4) throw new IllegalArgumentException("too deep");
+        List<Object> out = new ArrayList<>();
+        i++;
+        space();
+        if (s.charAt(i) == ']') { i++; depth--; return out; }
+        while (true) {
+            out.add(value());
+            space();
+            char c = s.charAt(i++);
+            if (c == ']') break;
             if (c != ',') throw new IllegalArgumentException("comma");
         }
         depth--;

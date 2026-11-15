@@ -79,8 +79,56 @@ public final class OpsTest {
         check("and so does inputs, after it", ops.accept("{\"id\":7,\"op\":\"inputs\",\"body\":{}}") == null);
     }
 
+    private static void subtitleState() {
+        String id = "0123456789abcdef0123456789abcdef";
+        String track = "{\"id\":\"" + id + "\",\"language\":\"en\",\"label\":\"English\",\"src\":\"https://untrusted.invalid/sub.vtt\"}";
+        String fields = ",\"itemId\":\"dad/clip.mp4@rev\",\"subtitles\":[" + track + "],\"subtitle\":\"" + id + "\",\"subtitleState\":\"ready\"";
+        String prefix = "{\"id\":2,\"op\":\"state\",\"body\":{\"title\":\"t\",\"key\":\"a/b.mp4\",\"position\":1.5,\"duration\":30,\"playing\":true";
+        String message = prefix + fields + "}}";
+        Ops.Request r = fresh().accept(message);
+        check("subtitle arrays survive the real bridge parser and state whitelist", r != null
+            && r.body.contains("\"itemId\":\"dad/clip.mp4@rev\"")
+            && r.body.contains("\"subtitles\":[{\"id\":\"" + id + "\",\"language\":\"en\",\"label\":\"English\"}]")
+            && r.body.contains("\"subtitle\":\"" + id + "\"") && r.body.contains("\"subtitleState\":\"ready\""));
+        check("subtitle descriptors never forward remote URLs or unknown fields", r != null && !r.body.contains("src") && !r.body.contains("untrusted"));
+        for (String state : Arrays.asList("off", "loading", "ready", "error", "suppressed")) {
+            check("subtitle state " + state + " is accepted", fresh().accept(message.replace("\"ready\"", "\"" + state + "\"")) != null);
+        }
+        r = fresh().accept(prefix + ",\"itemId\":null,\"subtitles\":[],\"subtitle\":null,\"subtitleState\":\"off\"}}");
+        check("an idle report with an empty array survives and clears the picker", r != null
+            && r.body.endsWith(",\"itemId\":null,\"subtitles\":[],\"subtitle\":null,\"subtitleState\":\"off\"}"));
+        r = fresh().accept(message.replace("\"subtitle\":\"" + id + "\"", "\"subtitle\":null"));
+        check("subtitle Off survives as JSON null", r != null && r.body.contains("\"subtitle\":null"));
+        check("a subtitle selection not offered is dropped", fresh().accept(message.replace("\"subtitle\":\"" + id + "\"", "\"subtitle\":\"ffffffffffffffffffffffffffffffff\"")) == null);
+        check("an invalid track id is dropped", fresh().accept(message.replace(id, "https://untrusted.invalid/sub.vtt")) == null);
+        check("duplicate subtitle ids are dropped", fresh().accept(message.replace("[" + track + "]", "[" + track + "," + track + "]")) == null);
+        check("subtitle tracks must be an array", fresh().accept(message.replace("[" + track + "]", "{}")) == null);
+        check("subtitle entries must be objects", fresh().accept(message.replace("[" + track + "]", "[[]]")) == null);
+        check("unknown subtitle states are dropped", fresh().accept(message.replace("\"ready\"", "\"external\"")) == null);
+        check("an oversized item id is dropped", fresh().accept(message.replace("dad/clip.mp4@rev", new String(new char[1201]).replace('\0', 'x'))) == null);
+        check("a control character in a label is dropped", fresh().accept(message.replace("English", "Eng\\u0001lish")) == null);
+        check("an oversized language is dropped", fresh().accept(message.replace("\"en\"", "\"" + new String(new char[36]).replace('\0', 'x') + "\"")) == null);
+        check("an oversized label is dropped", fresh().accept(message.replace("English", new String(new char[101]).replace('\0', 'x'))) == null);
+        StringBuilder tracks = new StringBuilder();
+        for (int i = 0; i < 9; i++) {
+            if (i > 0) tracks.append(',');
+            tracks.append(track.replace(id, String.format("%032x", i)));
+            if (i == 7) check("eight subtitle descriptors fit the bridge limit", fresh().accept(prefix
+                + ",\"itemId\":\"item\",\"subtitles\":[" + tracks + "],\"subtitle\":null}}") != null);
+        }
+        check("a ninth subtitle descriptor is dropped", fresh().accept(prefix
+            + ",\"itemId\":\"item\",\"subtitles\":[" + tracks + "],\"subtitle\":null}}") == null);
+        check("arrays share the existing depth limit", Json.parse("[[[[]]]]") != null && Json.parse("[[[[[]]]]]") == null);
+        check("a truncated array is dropped", Json.parse("[1,") == null);
+        check("a trailing array comma is dropped", Json.parse("[1,]") == null);
+        check("the bridge byte limit is unchanged", Json.parse("[\"" + new String(new char[Json.MAX]).replace('\0', 'x') + "\"]") == null);
+        check("arrays cannot become operations or bodies", fresh().accept("[]") == null
+            && fresh().accept("{\"id\":2,\"op\":\"state\",\"body\":[]}") == null);
+    }
+
     public static void main(String[] args) {
         inputs();
+        subtitleState();
         Ops ops = fresh();
         Ops.Request w = ops.accept("{\"id\":1,\"op\":\"register\",\"body\":{\"name\":\"Living room\",\"remote\":true,\"kind\":\"admin\"}}");
         check("register posts to /api/me", w != null && w.path.equals(Ops.REGISTER) && w.id == 1);
