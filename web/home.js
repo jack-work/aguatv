@@ -823,7 +823,7 @@
   }
 
   function control(screen, action, value, itemId) {
-    var command = { action: action, value: value === undefined ? 0 : value };
+    var command = { action: action, value: value === undefined ? (action === 'bar' ? -1 : 0) : value };
     if (action === 'subtitle') command.itemId = itemId;
     return api('POST', '/api/screens/' + encodeURIComponent(screen.id) + '/control', command)
       .then(function () { setTimeout(refreshScreens, 400); })
