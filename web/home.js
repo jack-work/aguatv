@@ -94,11 +94,32 @@
   var SCREEN_ONLINE_S = 120;
   var SCREENS_EVERY_MS = 5000;
   var SCREENS_EVERY_TV_MS = 30000;
+  var basicStateReports = false;
+  var basicStateAttempted = false;
+
+  function coreState(body) {
+    return { title: body.title, key: body.key, position: body.position, duration: body.duration, playing: body.playing };
+  }
+
+  function receiverState(receiver, body) {
+    if (basicStateReports) return receiver.call('state', coreState(body));
+    return receiver.call('state', body).catch(function (error) {
+      var compatible = error.operation === 'state' && ((error.kind === 'native-response' && error.status === 400) ||
+        (error.kind === 'bridge-timeout' && error.status === undefined));
+      if (!compatible || basicStateAttempted) throw error;
+      basicStateAttempted = true;
+      return receiver.call('state', coreState(cast.state())).then(function (result) {
+        basicStateReports = true;
+        say('Basic TV playback reporting; subtitle selection is unknown');
+        return result;
+      });
+    });
+  }
 
   function api(method, path, body) {
     var receiver = window.aguatvReceiver;
     if (receiver && method === 'POST' && (path === '/api/me' || path === '/api/me/state')) {
-      return receiver.call(path === '/api/me' ? 'register' : 'state', body);
+      return path === '/api/me/state' ? receiverState(receiver, body) : receiver.call('register', body);
     }
     var opts = { method: method, credentials: 'same-origin', headers: {} };
     if (body !== undefined) {
@@ -760,7 +781,7 @@
   }
 
   document.addEventListener('keydown', function (e) {
-    if (cast.covering()) return;
+    if (e.filoOwned || e.filoRemote || cast.covering()) return;
     if (e.target.tagName === 'INPUT') {
       if (e.key === 'Escape') { e.target.blur(); e.preventDefault(); }
       else if (e.key === 'Enter' && state.panel) { e.target.blur(); runAction(e); e.preventDefault(); }
@@ -835,13 +856,47 @@
     return sc ? sc.state || null : null;
   }
 
+  var remoteDescriptor = null;
+  var remoteDescriptorRequest = 0;
+
+  function clearRemoteDescriptor() {
+    remoteDescriptorRequest++;
+    remoteDescriptor = null;
+  }
+
+  function remoteItemDescriptor(screen, key) {
+    if (remoteDescriptor && remoteDescriptor.screen === screen && remoteDescriptor.key === key) return remoteDescriptor;
+    var descriptor = { screen: screen, key: key, itemId: null, subtitles: [] };
+    remoteDescriptor = descriptor;
+    var request = ++remoteDescriptorRequest;
+    if (typeof key !== 'string' || !key || /[\x00-\x1f\x7f\\]/.test(key) || key.split('/').some(function (part) { return !part || part === '.' || part === '..'; })) return descriptor;
+    fetch('/_media/api/item/' + key.split('/').map(encodeURIComponent).join('/'), { credentials: 'same-origin' }).then(function (response) {
+      if (!response.ok) throw new Error('item metadata unavailable');
+      return response.json();
+    }).then(function (item) {
+      if (request !== remoteDescriptorRequest || remoteDescriptor !== descriptor || item.key !== key || typeof item.itemId !== 'string') return;
+      descriptor.itemId = item.itemId;
+      descriptor.subtitles = (Array.isArray(item.subtitles) ? item.subtitles : []).filter(function (track) {
+        return track && typeof track.id === 'string' && /^[0-9a-f]{32}$/.test(track.id) && typeof track.language === 'string' && typeof track.label === 'string';
+      }).map(function (track) { return { id: track.id, language: track.language, label: track.label }; });
+      paintNow();
+    }).catch(function () {});
+    return descriptor;
+  }
+
   function paintNow() {
     if (!remoteSheet || !remoteSheet.shown || !remoteSheet.screen) return;
-    var st = screenState(remoteSheet.screen.id);
-    if (!st || !st.title) { remoteSheet.setNow({ title: 'nothing playing', position: 0, duration: 0, playing: false, itemId: null, subtitles: [], subtitle: null, subtitleState: 'off' }); return; }
+    var screen = remoteSheet.screen.id;
+    var st = screenState(screen);
+    if (!st) { clearRemoteDescriptor(); remoteSheet.setNow({ title: 'Waiting for screen report', position: 0, duration: 0, playing: false, itemId: null, subtitles: [], subtitle: null, subtitleState: 'unknown' }); return; }
+    if (!st.title) { clearRemoteDescriptor(); remoteSheet.setNow({ title: 'nothing playing', position: 0, duration: 0, playing: false, itemId: null, subtitles: [], subtitle: null, subtitleState: 'off' }); return; }
     var pos = st.position + (st.playing && st.at ? Date.now() / 1000 - st.at : 0);
     if (st.duration) pos = Math.min(pos, st.duration);
-    remoteSheet.setNow({ title: st.title, position: pos, duration: st.duration || 0, playing: !!st.playing, itemId: st.itemId || null, subtitles: st.subtitles || [], subtitle: st.subtitle == null ? null : st.subtitle, subtitleState: st.subtitleState || 'off' });
+    var unknown = !st.itemId;
+    var descriptor = unknown ? remoteItemDescriptor(screen, st.key) : st;
+    remoteSheet.setNow({ title: st.title, position: pos, duration: st.duration || 0, playing: !!st.playing,
+      itemId: descriptor.itemId || null, subtitles: descriptor.subtitles || [],
+      subtitle: unknown || st.subtitle == null ? null : st.subtitle, subtitleState: unknown ? 'unknown' : st.subtitleState || 'off' });
   }
 
   var fastTimer = null;
@@ -849,6 +904,7 @@
   function openRemote(screen) {
     if (!remoteSheet) return;
     closePanel();
+    clearRemoteDescriptor();
     remoteSheet.show({ id: screen.id, name: screen.name, kind: screen.kind, online: screenOnline(screen) });
     paintNow();
   }
@@ -901,7 +957,7 @@
       clearInterval(fastTimer);
       fastTimer = setInterval(function () { if (!document.hidden) refreshScreens(); }, 2000);
     });
-    remoteSheet.root.addEventListener('bacchetta:hide', function () { clearInterval(fastTimer); fastTimer = null; focus(); });
+    remoteSheet.root.addEventListener('bacchetta:hide', function () { clearInterval(fastTimer); fastTimer = null; clearRemoteDescriptor(); focus(); });
   }
 
   function showHere() {
@@ -1034,6 +1090,7 @@
     pause: function () { clearTimeout(tickTimer); },
     home: function () { cast.stop(); closeRemote(); closePanel(); first(); },
     back: function () {
+      if (cast.dismissControls()) return;
       if (cast.open()) cast.stop();
       else if (remoteSheet && remoteSheet.shown && !remoteSheet.minimised) closeRemote();
       else if (state.panel) closePanel();

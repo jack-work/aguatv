@@ -23,7 +23,7 @@
 
   function online() { return !window.host && !/[?&]preview\b/.test(location.search); }
 
-  function onTv() { return !!window.aguatvReceiver; }
+  function onTv() { return !!window.aguatvReceiver || /; wv\)/.test(navigator.userAgent); }
 
   function media() { return filo && filo.media || video; }
 
@@ -115,6 +115,7 @@
     var returning = view !== 'gallery' && v === 'gallery';
     view = v;
     var listening = v === 'about' && !!item && item.kind === 'audio' && !!filo;
+    if (filo && online() && !onTv() && v === 'gallery' && !filo.docked) filo.dock(true);
     if (filo && item && item.kind === 'audio' && online() && !onTv() && filo.docked === listening) filo.dock(!listening);
     document.body.classList.toggle('listening', listening);
     document.body.classList.toggle('watching', v === 'watch');
@@ -194,7 +195,7 @@
       }
       if (playing) video.play().catch(function () { if (filo) filo.showBar(true); });
     }
-    if (master && !window.aguatvReceiver && video.canPlayType('application/vnd.apple.mpegurl')) {
+    if (master && !onTv() && video.canPlayType('application/vnd.apple.mpegurl')) {
       engine = 'native';
       video.src = master;
       if (filo) filo.setSubtitleMode(item && (item.subtitles || []).some(function (s) { return !!s.hls; }) ? 'native' : 'sidecar');
@@ -446,6 +447,8 @@
     else close();
   }
 
+  function dismissControls() { return !!filo && filo.back(); }
+
   function preparing() { return !!item && !filo && !note.hidden; }
 
   root.addEventListener('filo:stop', close);
@@ -478,7 +481,8 @@
   video.addEventListener('ended', function () { savePosition(true); stop(); });
   document.addEventListener('visibilitychange', function () { if (document.hidden) savePosition(true); });
   document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape' || (filo && filo.open) || (!filo && !preparing())) return;
+    if (e.key !== 'Escape' || (!filo && !preparing())) return;
+    if (dismissControls()) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     if (!online() || onTv() || preparing()) stop();
     else if (view !== 'gallery') back();
     else return;
@@ -503,16 +507,27 @@
         try { body = r.body ? JSON.parse(r.body) : {}; } catch (err) {}
         w.resolve(body);
       } else {
-        w.reject(new Error('the TV could not save that (' + r.status + ')'));
+        var error = new Error('the TV could not save that (' + r.status + ')');
+        if (typeof r.status === 'number' && r.status >= 100 && r.status <= 599 && Math.floor(r.status) === r.status) error.status = r.status;
+        error.kind = 'native-response';
+        error.operation = w.op;
+        w.reject(error);
       }
     };
     window.aguatvReceiver = {
       call: function (op, body) {
         var id = next++;
         return new Promise(function (resolve, reject) {
-          waiting[id] = { resolve: resolve, reject: reject };
+          waiting[id] = { resolve: resolve, reject: reject, op: op };
           port.postMessage(JSON.stringify({ id: id, op: op, body: body || {} }));
-          setTimeout(function () { if (waiting[id]) { delete waiting[id]; reject(new Error('the TV did not answer')); } }, 15000);
+          setTimeout(function () {
+            if (!waiting[id]) return;
+            delete waiting[id];
+            var error = new Error('the TV did not answer');
+            error.kind = 'bridge-timeout';
+            error.operation = op;
+            reject(error);
+          }, 15000);
         });
       }
     };
@@ -523,6 +538,7 @@
     play: play,
     control: control,
     stop: stop,
+    dismissControls: dismissControls,
     state: state,
     open: function () { return !!filo || preparing(); },
     covering: function () { return view !== 'gallery' || (!!filo && !filo.docked) || preparing(); },

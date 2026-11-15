@@ -336,7 +336,7 @@ body.casting { overflow: hidden; }
 }
 
 body.online .shelf { padding-bottom: calc(var(--filo-dock-height, 0px) + var(--bacchetta-height, 0px)); }
-body.online .drawer { bottom: var(--filo-dock-height, 0px); }
+body.online .drawer { bottom: var(--filo-dock-height, 0px); z-index: 60; }
 html:has(body.away) { overflow-y: auto; }
 body.away .stage { display: none; }
 body.away { overflow: visible; }
